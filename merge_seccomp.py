@@ -17,9 +17,10 @@ Merge policy:
     affects whether the profile can load on that architecture, not what's allowed on the
     one a container is actually running on, so union costs nothing and adds portability.
 
-Inputs are vendored, pinned snapshots under profiles/upstream/ (not fetched live):
-  Docker: moby/moby, vendor/github.com/moby/profiles/seccomp/default.json
-  Podman: containers/common, pkg/seccomp/seccomp.json
+Inputs are fetched live from GitHub on every run (see DOCKER_URL/PODMAN_URL below) --
+tracking each engine's default branch, not a pinned commit, so the merge always reflects
+the current upstream defaults. Pass a local file path to --docker/--podman instead if you
+want to run against a fixed snapshot.
 """
 
 from __future__ import annotations
@@ -27,11 +28,16 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent
+
+DOCKER_URL = "https://raw.githubusercontent.com/moby/moby/master/vendor/github.com/moby/profiles/seccomp/default.json"
+PODMAN_URL = "https://raw.githubusercontent.com/containers/common/main/pkg/seccomp/seccomp.json"
 
 ALLOW = "SCMP_ACT_ALLOW"
 ERRNO = "SCMP_ACT_ERRNO"
@@ -116,9 +122,20 @@ class Profile:
     syscalls: list[SyscallRule]
 
 
-def load_profile(path: Path) -> Profile:
-    """Parse an OCI seccomp profile JSON file into a `Profile`."""
-    data = json.loads(path.read_text())
+def fetch_text(source: str) -> str:
+    """Read JSON text from an http(s) URL or a local file path."""
+    if source.startswith(("http://", "https://")):
+        try:
+            with urllib.request.urlopen(source, timeout=30) as response:
+                return response.read().decode("utf-8")
+        except (urllib.error.URLError, TimeoutError) as exc:
+            raise SystemExit(f"failed to fetch {source}: {exc}") from exc
+    return Path(source).read_text()
+
+
+def load_profile(source: str) -> Profile:
+    """Parse an OCI seccomp profile JSON, fetched from a URL or read from a local path."""
+    data = json.loads(fetch_text(source))
     syscalls = [
         SyscallRule(
             names=list(rule["names"]),
@@ -349,8 +366,8 @@ def validate(merged: Profile, docker: Profile, podman: Profile) -> list[str]:
 def main() -> None:
     """CLI entry point: load both profiles, merge, validate, and write the result."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--docker", default=REPO_ROOT / "profiles/upstream/docker-default.json", type=Path)
-    parser.add_argument("--podman", default=REPO_ROOT / "profiles/upstream/podman-default.json", type=Path)
+    parser.add_argument("--docker", default=DOCKER_URL, help="URL or local file path")
+    parser.add_argument("--podman", default=PODMAN_URL, help="URL or local file path")
     parser.add_argument("--out", default=REPO_ROOT / "profiles/hardened-seccomp.json", type=Path)
     args = parser.parse_args()
 

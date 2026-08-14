@@ -11,12 +11,12 @@ The ready-to-use profile is [`profiles/hardened-seccomp.json`](profiles/hardened
 
 ```
 profiles/
-  upstream/
-    docker-default.json    vendored copy of Docker's default seccomp profile
-    podman-default.json    vendored copy of Podman's default seccomp profile
   hardened-seccomp.json    generated output -- the profile you actually use
-merge_seccomp.py           everything: parsing, merge policy, deny-list, CLI
+merge_seccomp.py           everything: fetching, parsing, merge policy, deny-list, CLI
 ```
+
+Docker's and Podman's default profiles are fetched live from GitHub on every run (each
+engine's default branch, not a pinned commit) -- there's nothing to vendor or keep in sync.
 
 ## Using the profile
 
@@ -36,7 +36,8 @@ securityContext:
 
 ## Regenerating
 
-Plain Python 3, no third-party dependencies:
+Plain Python 3, no third-party dependencies. Fetches both upstream profiles from GitHub and
+writes the merged result:
 
 ```sh
 python3 merge_seccomp.py
@@ -44,20 +45,13 @@ python3 merge_seccomp.py
 
 Validates its own output before writing (non-empty, every allowed syscall traceable to the
 deny-list-free intersection of both engines or a documented special case) and exits non-zero
-if anything looks wrong.
+if anything looks wrong -- including if either fetch fails.
 
-## Refreshing the vendored upstream profiles
-
-The two files under `profiles/upstream/` are pinned snapshots, not fetched live:
+Pass a local file path instead of fetching, e.g. to pin against a known-good snapshot or run
+offline:
 
 ```sh
-curl -sL "https://raw.githubusercontent.com/moby/moby/master/vendor/github.com/moby/profiles/seccomp/default.json" \
-  | python3 -m json.tool > profiles/upstream/docker-default.json
-
-curl -sL "https://raw.githubusercontent.com/containers/common/main/pkg/seccomp/seccomp.json" \
-  | python3 -m json.tool > profiles/upstream/podman-default.json
-
-python3 merge_seccomp.py
+python3 merge_seccomp.py --docker docker-default.json --podman podman-default.json
 ```
 
 ## Compatibility caveats
