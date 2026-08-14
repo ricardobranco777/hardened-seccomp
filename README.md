@@ -1,32 +1,21 @@
 # hardened-seccomp
 
-A single seccomp profile that works with both Docker and Podman, built by comparing the two
-engines' upstream default profiles and keeping only the safest common ground — plus a curated
-deny-list that hard-blocks a further set of historically dangerous syscalls.
+A single seccomp profile that works with both Docker and Podman: only allows a syscall if
+both engines' defaults allow it (whichever side gates it more strictly wins), plus a curated
+deny-list that hard-blocks a further set of historically dangerous syscalls regardless of
+capability gating. The full policy and rationale are documented in `merge_seccomp.py`.
 
 The ready-to-use profile is [`profiles/hardened-seccomp.json`](profiles/hardened-seccomp.json).
-The full rationale for every decision it makes is in [`ANALYSIS.md`](ANALYSIS.md).
 
 ## Layout
 
 ```
 profiles/
-  upstream/               vendored, pinned copies of Docker's and Podman's default profiles
-    docker-default.json
-    podman-default.json
-    SOURCES.md            exact commit/URL for each, and how to refresh them
-  hardening/
-    deny-list.json        curated syscalls hard-blocked regardless of capability gating
-  hardened-seccomp.json   generated output — the profile you actually use
-scripts/
-  seccomp_lib.py          shared OCI seccomp JSON model (load/normalize/serialize)
-  analyze_profiles.py     diffs the two upstream profiles -> reports/analysis_report.{json,md}
-  merge_profiles.py       builds hardened-seccomp.json from the two profiles + deny-list
-reports/
-  analysis_report.{json,md}   generated comparison data behind ANALYSIS.md
-  merge_report.md             generated before/after detail behind the merge decisions
-tests/                    unit tests (stdlib unittest, no dependencies)
-ANALYSIS.md               narrative writeup of the comparison and the merge policy
+  upstream/
+    docker-default.json    vendored copy of Docker's default seccomp profile
+    podman-default.json    vendored copy of Podman's default seccomp profile
+  hardened-seccomp.json    generated output -- the profile you actually use
+merge_seccomp.py           everything: parsing, merge policy, deny-list, CLI
 ```
 
 ## Using the profile
@@ -47,62 +36,34 @@ securityContext:
 
 ## Regenerating
 
-Both scripts are plain Python 3 with no third-party dependencies.
+Plain Python 3, no third-party dependencies:
 
 ```sh
-python3 scripts/analyze_profiles.py   # refresh reports/analysis_report.{json,md}
-python3 scripts/merge_profiles.py     # refresh profiles/hardened-seccomp.json + reports/merge_report.md
+python3 merge_seccomp.py
 ```
 
-`merge_profiles.py` validates its own output before writing (non-empty, round-trips through
-`json.load`, and every allowed syscall is traceable to a specific merge decision) and exits
-non-zero if anything looks wrong.
-
-## Tests
-
-Unit tests use Python's stdlib `unittest`, no third-party dependencies:
-
-```sh
-python3 -m unittest discover
-```
-
-`tests/test_seccomp_lib.py` and `tests/test_analyze_profiles.py` / `tests/test_merge_profiles.py`
-exercise the loading/serialization and classification/merge logic against small synthetic
-profiles. `tests/test_integration.py` runs the real merge against the committed vendored
-profiles and deny-list, and fails if `profiles/hardened-seccomp.json` is stale relative to
-them (i.e. you edited an input and forgot to re-run `merge_profiles.py`).
+Validates its own output before writing (non-empty, every allowed syscall traceable to the
+deny-list-free intersection of both engines or a documented special case) and exits non-zero
+if anything looks wrong.
 
 ## Refreshing the vendored upstream profiles
 
-The two files under `profiles/upstream/` are pinned snapshots, not fetched live. To update
-them to the latest upstream defaults, see the exact commands and the commit-pinning convention
-in [`profiles/upstream/SOURCES.md`](profiles/upstream/SOURCES.md), then re-run both scripts
-above and review `reports/merge_report.md` for anything that changed.
+The two files under `profiles/upstream/` are pinned snapshots, not fetched live:
 
-## How the merge policy works
+```sh
+curl -sL "https://raw.githubusercontent.com/moby/moby/master/vendor/github.com/moby/profiles/seccomp/default.json" \
+  | python3 -m json.tool > profiles/upstream/docker-default.json
 
-In short (full detail in [`ANALYSIS.md`](ANALYSIS.md)):
+curl -sL "https://raw.githubusercontent.com/containers/common/main/pkg/seccomp/seccomp.json" \
+  | python3 -m json.tool > profiles/upstream/podman-default.json
 
-1. A syscall is allowed only if **both** Docker's and Podman's defaults allow it.
-2. If one engine gates it (by capability, kernel version, or argument) and the other doesn't,
-   the gate wins.
-3. `profiles/hardening/deny-list.json` hard-blocks a further set of syscalls
-   (`ptrace`, `mount`, `unshare`, `bpf`, `perf_event_open`, kernel-module syscalls, ...)
-   regardless of capability gating — they stay blocked even if the container is later granted
-   the matching capability.
-4. A couple of syscalls (`socket()` today) have restrictions that don't compose safely under
-   rule (2) — see `scripts/merge_profiles.py` and `ANALYSIS.md`'s "Special-cased syscalls" for
-   why and what replaces them. `clone()` also gets one extra hardening pass beyond either
-   engine's default (blocking unprivileged `CLONE_NEWTIME`, closing a gap in Docker's own mask).
-5. The result uses Podman's `ENOSYS` error return (the modern recommended default) and the
-   **union** of both engines' declared architectures (an arch entry only affects whether the
-   profile can load on that architecture, not what's allowed on the one you're running).
+python3 merge_seccomp.py
+```
 
 ## Compatibility caveats
 
 This profile is intentionally more restrictive than either engine's own default. Workloads
-that need one of the following will need to trim `profiles/hardening/deny-list.json` and
-re-run `merge_profiles.py`:
+that need one of the following will need to trim `DENY_LIST` in `merge_seccomp.py`:
 
 - **Nested containers / Docker-in-Docker / Podman-in-Podman**: needs `mount`, `unshare`,
   `setns`, `pivot_root`.
@@ -111,13 +72,9 @@ re-run `merge_profiles.py`:
 - **Profilers / eBPF tooling**: needs `perf_event_open`, `bpf`.
 
 Newer syscalls that only one engine's default has picked up so far (e.g. Docker-only `mseal`,
-`uretprobe`, `listmount`/`statmount`) are dropped by the strict-intersection policy even when
-they'd be safe to allow. This is a deliberate trade-off of minimalism over currency, not an
-oversight — see `ANALYSIS.md`'s "Known limitations" if you want to maintain a curated allow-list
-of individually-vetted newer syscalls on top of this instead.
-
-RISC-V and LoongArch hosts are already covered — the merged `archMap` is the union of both
-engines' declared architectures, so it includes every architecture either default declares.
+`uretprobe`, `listmount`/`statmount`) are dropped even when they'd be safe to allow -- that's
+the deliberate trade-off of a strict-intersection policy (minimalism over currency), not an
+oversight.
 
 ## License
 
