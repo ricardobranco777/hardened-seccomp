@@ -200,6 +200,16 @@ def _merge_socket_rules() -> list[SyscallRule]:
     rule matches, so each side's broad rule silently re-admits what the other blocks. This
     builds the actual combination instead: domain not in {AF_ALG, AF_VSOCK} always, AND
     the netlink-audit socket additionally requires CAP_AUDIT_WRITE.
+
+    Known gap: this only covers the socket(2) syscall. `socketcall` reaches the same
+    socket-creation paths through a single multiplexed syscall whose real arguments are
+    behind a userspace pointer seccomp/BPF can't dereference, so it bypasses this filtering
+    entirely. Docker tried blocking socketcall outright to close that gap (moby/profiles
+    commit 7158007a8300) and reverted it (3c2832431472) because it broke x86 binaries more
+    than expected; this profile leaves it allowed for the same reason rather than
+    second-guessing that field experience. Closing this gap for real requires AppArmor or
+    SELinux (an LSM hook at security_socket_create sees the real socket domain regardless
+    of which syscall reached it; seccomp can't).
     """
     not_banned_domain = [
         {"index": 0, "value": AF_ALG, "op": "SCMP_CMP_NE"},

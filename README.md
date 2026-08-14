@@ -65,6 +65,16 @@ that need one of the following will need to trim `DENY_LIST` in `merge_seccomp.p
   `process_vm_writev`.
 - **Profilers / eBPF tooling**: needs `perf_event_open`, `bpf`.
 
+**Known gap, left open on purpose**: `socketcall` (the legacy multiplexed socket syscall used
+mainly by 32-bit x86 binaries) bypasses the AF_ALG/AF_VSOCK/netlink-audit restrictions in
+`_merge_socket_rules` entirely, since seccomp can't filter arguments hidden behind a userspace
+pointer. Docker tried blocking `socketcall` outright upstream and reverted it because it broke
+more legitimate x86 userland than expected (see `_merge_socket_rules`' docstring for the
+commit references); this profile leaves it allowed for the same reason rather than
+second-guessing that field experience. Closing this gap for real needs AppArmor or SELinux,
+not seccomp -- only an LSM hook at `security_socket_create` sees the real socket domain
+regardless of which syscall reached it.
+
 Newer syscalls that only one engine's default has picked up so far (e.g. Docker-only `mseal`,
 `uretprobe`, `listmount`/`statmount`) are dropped even when they'd be safe to allow -- that's
 the deliberate trade-off of a strict-intersection policy (minimalism over currency), not an
