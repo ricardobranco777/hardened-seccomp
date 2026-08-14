@@ -23,6 +23,7 @@ class SyscallRule:
     excludes: dict[str, Any] | None = None
 
     def is_unconditional(self) -> bool:
+        """True if this rule applies with no capability/kernel/arg gating at all."""
         return not self.args and not self.includes and not self.excludes
 
     def group_key(self) -> str:
@@ -49,13 +50,14 @@ class Profile:
 
 
 def load(path: str | Path) -> Profile:
+    """Parse an OCI seccomp profile JSON file into a `Profile`."""
     data = json.loads(Path(path).read_text())
     syscalls = [
         SyscallRule(
             names=list(rule["names"]),
             action=rule["action"],
             args=rule.get("args") or None,
-            comment=rule.get("comment"),
+            comment=rule.get("comment") or None,
             includes=rule.get("includes") or None,
             excludes=rule.get("excludes") or None,
         )

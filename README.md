@@ -25,6 +25,7 @@ scripts/
 reports/
   analysis_report.{json,md}   generated comparison data behind ANALYSIS.md
   merge_report.md             generated before/after detail behind the merge decisions
+tests/                    unit tests (stdlib unittest, no dependencies)
 ANALYSIS.md               narrative writeup of the comparison and the merge policy
 ```
 
@@ -56,6 +57,20 @@ python3 scripts/merge_profiles.py     # refresh profiles/hardened-seccomp.json +
 `merge_profiles.py` validates its own output before writing (non-empty, round-trips through
 `json.load`, and every allowed syscall is traceable to a specific merge decision) and exits
 non-zero if anything looks wrong.
+
+## Tests
+
+Unit tests use Python's stdlib `unittest`, no third-party dependencies:
+
+```sh
+python3 -m unittest discover
+```
+
+`tests/test_seccomp_lib.py` and `tests/test_analyze_profiles.py` / `tests/test_merge_profiles.py`
+exercise the loading/serialization and classification/merge logic against small synthetic
+profiles. `tests/test_integration.py` runs the real merge against the committed vendored
+profiles and deny-list, and fails if `profiles/hardened-seccomp.json` is stale relative to
+them (i.e. you edited an input and forgot to re-run `merge_profiles.py`).
 
 ## Refreshing the vendored upstream profiles
 
