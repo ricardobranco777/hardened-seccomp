@@ -116,16 +116,28 @@ class RulesBySyscallTests(unittest.TestCase):
         self.assertIn("ptrace", by_name)
 
 
-class IntersectArchMapsTests(unittest.TestCase):
-    def test_keeps_only_common_architectures(self):
+class UnionArchMapsTests(unittest.TestCase):
+    def test_includes_architectures_unique_to_either_side(self):
         a = [{"architecture": "SCMP_ARCH_X86_64"}, {"architecture": "SCMP_ARCH_RISCV64"}]
-        b = [{"architecture": "SCMP_ARCH_X86_64"}]
-        self.assertEqual(lib.intersect_arch_maps(a, b), [{"architecture": "SCMP_ARCH_X86_64"}])
+        b = [{"architecture": "SCMP_ARCH_X86_64"}, {"architecture": "SCMP_ARCH_AARCH64"}]
+        result = {e["architecture"] for e in lib.union_arch_maps(a, b)}
+        self.assertEqual(
+            result, {"SCMP_ARCH_X86_64", "SCMP_ARCH_RISCV64", "SCMP_ARCH_AARCH64"}
+        )
 
-    def test_empty_when_no_overlap(self):
+    def test_merges_subarchitectures_for_shared_entries(self):
+        a = [{"architecture": "SCMP_ARCH_X86_64", "subArchitectures": ["SCMP_ARCH_X86"]}]
+        b = [{"architecture": "SCMP_ARCH_X86_64", "subArchitectures": ["SCMP_ARCH_X32"]}]
+        result = lib.union_arch_maps(a, b)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(
+            set(result[0]["subArchitectures"]), {"SCMP_ARCH_X86", "SCMP_ARCH_X32"}
+        )
+
+    def test_no_duplicate_entries_for_identical_architectures(self):
         a = [{"architecture": "SCMP_ARCH_X86_64"}]
-        b = [{"architecture": "SCMP_ARCH_AARCH64"}]
-        self.assertEqual(lib.intersect_arch_maps(a, b), [])
+        b = [{"architecture": "SCMP_ARCH_X86_64"}]
+        self.assertEqual(len(lib.union_arch_maps(a, b)), 1)
 
 
 class DumpTests(unittest.TestCase):

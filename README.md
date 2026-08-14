@@ -90,8 +90,13 @@ In short (full detail in [`ANALYSIS.md`](ANALYSIS.md)):
    (`ptrace`, `mount`, `unshare`, `bpf`, `perf_event_open`, kernel-module syscalls, ...)
    regardless of capability gating — they stay blocked even if the container is later granted
    the matching capability.
-4. The result uses Podman's `ENOSYS` error return (the modern recommended default) and the
-   intersection of both engines' declared architectures.
+4. A couple of syscalls (`socket()` today) have restrictions that don't compose safely under
+   rule (2) — see `scripts/merge_profiles.py` and `ANALYSIS.md`'s "Special-cased syscalls" for
+   why and what replaces them. `clone()` also gets one extra hardening pass beyond either
+   engine's default (blocking unprivileged `CLONE_NEWTIME`, closing a gap in Docker's own mask).
+5. The result uses Podman's `ENOSYS` error return (the modern recommended default) and the
+   **union** of both engines' declared architectures (an arch entry only affects whether the
+   profile can load on that architecture, not what's allowed on the one you're running).
 
 ## Compatibility caveats
 
@@ -105,9 +110,14 @@ re-run `merge_profiles.py`:
   `process_vm_writev`.
 - **Profilers / eBPF tooling**: needs `perf_event_open`, `bpf`.
 
-RISC-V and LoongArch hosts: the merged `archMap` only includes architectures both engines'
-defaults declare (Podman's default doesn't list either yet). Add the arch entries back from
-`profiles/upstream/docker-default.json` manually if you need them.
+Newer syscalls that only one engine's default has picked up so far (e.g. Docker-only `mseal`,
+`uretprobe`, `listmount`/`statmount`) are dropped by the strict-intersection policy even when
+they'd be safe to allow. This is a deliberate trade-off of minimalism over currency, not an
+oversight — see `ANALYSIS.md`'s "Known limitations" if you want to maintain a curated allow-list
+of individually-vetted newer syscalls on top of this instead.
+
+RISC-V and LoongArch hosts are already covered — the merged `archMap` is the union of both
+engines' declared architectures, so it includes every architecture either default declares.
 
 ## License
 

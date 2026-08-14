@@ -110,12 +110,32 @@ def allow_rules_by_syscall(profile: Profile) -> dict[str, list[SyscallRule]]:
     return out
 
 
-def intersect_arch_maps(
+def union_arch_maps(
     a: list[dict[str, Any]], b: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
-    """Keep only architecture entries declared by both profiles."""
-    b_arches = {entry["architecture"] for entry in b}
-    return [entry for entry in a if entry["architecture"] in b_arches]
+    """Combine architecture entries declared by either profile.
+
+    Unlike the syscalls list, an archMap entry only affects whether a profile can be
+    loaded at all on that architecture -- it doesn't change what's allowed on whichever
+    architecture a given container is actually running on. So, unlike syscalls, taking
+    the union here (rather than the intersection) widens portability without weakening
+    the profile anywhere.
+    """
+    by_arch: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    for entry in a + b:
+        arch = entry["architecture"]
+        if arch not in by_arch:
+            by_arch[arch] = dict(entry)
+            order.append(arch)
+            continue
+        merged_subs = sorted(
+            set(by_arch[arch].get("subArchitectures") or [])
+            | set(entry.get("subArchitectures") or [])
+        )
+        if merged_subs:
+            by_arch[arch]["subArchitectures"] = merged_subs
+    return [by_arch[arch] for arch in order]
 
 
 def dump(profile: Profile, path: str | Path) -> None:

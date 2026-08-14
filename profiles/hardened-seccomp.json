@@ -6,8 +6,8 @@
     {
       "architecture": "SCMP_ARCH_X86_64",
       "subArchitectures": [
-        "SCMP_ARCH_X86",
-        "SCMP_ARCH_X32"
+        "SCMP_ARCH_X32",
+        "SCMP_ARCH_X86"
       ]
     },
     {
@@ -49,6 +49,14 @@
       "subArchitectures": [
         "SCMP_ARCH_S390"
       ]
+    },
+    {
+      "architecture": "SCMP_ARCH_RISCV64",
+      "subArchitectures": null
+    },
+    {
+      "architecture": "SCMP_ARCH_LOONGARCH64",
+      "subArchitectures": null
     }
   ],
   "syscalls": [
@@ -498,7 +506,7 @@
       "args": [
         {
           "index": 0,
-          "value": 2114060288,
+          "value": 2114060416,
           "op": "SCMP_CMP_MASKED_EQ"
         }
       ]
@@ -522,7 +530,7 @@
       "args": [
         {
           "index": 1,
-          "value": 2114060288,
+          "value": 2114060416,
           "op": "SCMP_CMP_MASKED_EQ"
         }
       ]
@@ -742,45 +750,6 @@
         "socket"
       ],
       "action": "SCMP_ACT_ALLOW",
-      "args": [
-        {
-          "index": 0,
-          "value": 38,
-          "op": "SCMP_CMP_LT"
-        }
-      ]
-    },
-    {
-      "names": [
-        "socket"
-      ],
-      "action": "SCMP_ACT_ALLOW",
-      "args": [
-        {
-          "index": 0,
-          "value": 39,
-          "op": "SCMP_CMP_EQ"
-        }
-      ]
-    },
-    {
-      "names": [
-        "socket"
-      ],
-      "action": "SCMP_ACT_ALLOW",
-      "args": [
-        {
-          "index": 0,
-          "value": 40,
-          "op": "SCMP_CMP_GT"
-        }
-      ]
-    },
-    {
-      "names": [
-        "socket"
-      ],
-      "action": "SCMP_ACT_ALLOW",
       "excludes": {
         "caps": [
           "CAP_AUDIT_WRITE"
@@ -790,7 +759,16 @@
         {
           "index": 2,
           "value": 9,
-          "valueTwo": 0,
+          "op": "SCMP_CMP_NE"
+        },
+        {
+          "index": 0,
+          "value": 38,
+          "op": "SCMP_CMP_NE"
+        },
+        {
+          "index": 0,
+          "value": 40,
           "op": "SCMP_CMP_NE"
         }
       ]
@@ -809,7 +787,16 @@
         {
           "index": 0,
           "value": 16,
-          "valueTwo": 0,
+          "op": "SCMP_CMP_NE"
+        },
+        {
+          "index": 0,
+          "value": 38,
+          "op": "SCMP_CMP_NE"
+        },
+        {
+          "index": 0,
+          "value": 40,
           "op": "SCMP_CMP_NE"
         }
       ]
@@ -823,7 +810,19 @@
         "caps": [
           "CAP_AUDIT_WRITE"
         ]
-      }
+      },
+      "args": [
+        {
+          "index": 0,
+          "value": 38,
+          "op": "SCMP_CMP_NE"
+        },
+        {
+          "index": 0,
+          "value": 40,
+          "op": "SCMP_CMP_NE"
+        }
+      ]
     },
     {
       "names": [

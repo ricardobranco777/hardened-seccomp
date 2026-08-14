@@ -81,10 +81,10 @@ class BuildMergeTests(unittest.TestCase):
         self.assertEqual(merged.default_errno_ret, 38)
         self.assertEqual(merged.default_errno, "ENOSYS")
 
-    def test_arch_map_is_intersection(self):
+    def test_arch_map_is_union(self):
         merged, _ = merge.build_merge(self.docker, self.podman, self.deny_list)
         arches = {e["architecture"] for e in merged.arch_map}
-        self.assertEqual(arches, {"SCMP_ARCH_X86_64"})
+        self.assertEqual(arches, {"SCMP_ARCH_X86_64", "SCMP_ARCH_RISCV64"})
 
     def test_both_gated_different_conditions_are_unioned(self):
         docker = lib.Profile(
@@ -107,6 +107,60 @@ class BuildMergeTests(unittest.TestCase):
         self.assertEqual(
             gates, {json.dumps({"caps": ["CAP_SYS_ADMIN"]}), json.dumps({"caps": ["CAP_PERFMON"]})}
         )
+
+    def test_socket_is_special_cased_and_combines_both_restrictions(self):
+        # Regression test: the generic "both gated, union the rules" strategy is unsound
+        # for socket() -- Docker's domain filter has no protocol check and Podman's
+        # protocol filter has no domain check, so naively unioning them re-admits both
+        # AF_ALG/AF_VSOCK (Docker's restriction) and unrestricted netlink-audit sockets
+        # (Podman's restriction). socket() must go through the special case instead.
+        docker = lib.Profile(
+            default_action=lib.ERRNO, default_errno_ret=1, default_errno=None, arch_map=[],
+            syscalls=[
+                allow(["socket"], args=[{"index": 0, "value": 38, "op": "SCMP_CMP_LT"}]),
+            ],
+        )
+        podman = lib.Profile(
+            default_action=lib.ERRNO, default_errno_ret=38, default_errno="ENOSYS", arch_map=[],
+            syscalls=[
+                allow(
+                    ["socket"],
+                    args=[{"index": 0, "value": 16, "op": "SCMP_CMP_NE"}],
+                    excludes={"caps": ["CAP_AUDIT_WRITE"]},
+                ),
+            ],
+        )
+        merged, decisions = merge.build_merge(docker, podman, {})
+        self.assertIn("socket", decisions["special_cased"])
+
+        socket_rules = [r for r in merged.syscalls if r.names == ["socket"]]
+        # every rule must exclude AF_ALG (38) and AF_VSOCK (40), regardless of capability
+        for rule in socket_rules:
+            values = {a["value"] for a in rule.args if a["index"] == 0 and a["op"] == "SCMP_CMP_NE"}
+            self.assertTrue({38, 40} <= values, rule)
+        # the CAP_AUDIT_WRITE-gated rule must not bypass the AF_ALG/AF_VSOCK restriction
+        cap_gated = [r for r in socket_rules if r.includes == {"caps": ["CAP_AUDIT_WRITE"]}]
+        self.assertEqual(len(cap_gated), 1)
+
+    def test_clone_mask_gains_clone_newtime_bit(self):
+        CLONE_NEWTIME = 0x80
+        docker = lib.Profile(
+            default_action=lib.ERRNO, default_errno_ret=1, default_errno=None, arch_map=[],
+            syscalls=[
+                allow(
+                    ["clone"],
+                    args=[{"index": 0, "value": 0x7E020000, "op": "SCMP_CMP_MASKED_EQ"}],
+                ),
+            ],
+        )
+        podman = lib.Profile(
+            default_action=lib.ERRNO, default_errno_ret=38, default_errno="ENOSYS", arch_map=[],
+            syscalls=[allow(["clone"])],
+        )
+        merged, decisions = merge.build_merge(docker, podman, {})
+        self.assertIn("clone", decisions["hardened_beyond_source"])
+        clone_rule = next(r for r in merged.syscalls if r.names == ["clone"])
+        self.assertTrue(clone_rule.args[0]["value"] & CLONE_NEWTIME)
 
 
 class ValidateTests(unittest.TestCase):
@@ -133,6 +187,8 @@ class ValidateTests(unittest.TestCase):
             "tightened_docker": [],
             "tightened_podman": [],
             "union_both_gated": [],
+            "special_cased": [],
+            "hardened_beyond_source": [],
             "dropped_docker_only": [],
             "dropped_podman_only": [],
         }
@@ -145,8 +201,8 @@ class ValidateTests(unittest.TestCase):
         )
         decisions = {
             "denied_by_policy": [], "kept_unconditional": [], "tightened_docker": [],
-            "tightened_podman": [], "union_both_gated": [], "dropped_docker_only": [],
-            "dropped_podman_only": [],
+            "tightened_podman": [], "union_both_gated": [], "special_cased": [],
+            "hardened_beyond_source": [], "dropped_docker_only": [], "dropped_podman_only": [],
         }
         errors = merge.validate(merged, decisions, {})
         self.assertTrue(any("no syscall rules" in e for e in errors))
