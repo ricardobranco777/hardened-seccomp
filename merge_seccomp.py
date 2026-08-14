@@ -36,7 +36,7 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent
 
-DOCKER_URL = "https://raw.githubusercontent.com/moby/moby/master/vendor/github.com/moby/profiles/seccomp/default.json"
+DOCKER_URL = "https://raw.githubusercontent.com/moby/profiles/main/seccomp/default.json"
 PODMAN_URL = "https://raw.githubusercontent.com/containers/common/main/pkg/seccomp/seccomp.json"
 
 ALLOW = "SCMP_ACT_ALLOW"
