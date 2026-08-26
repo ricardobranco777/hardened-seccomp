@@ -85,6 +85,9 @@ BLACKLIST = {
 
 @dataclass
 class SyscallRule:
+    """One entry from a seccomp profile's `syscalls` list: one or more syscall names
+    sharing the same action and gating (args/includes/excludes)."""
+
     names: list[str]
     action: str
     args: list[dict[str, Any]] | None = None
@@ -112,6 +115,8 @@ class SyscallRule:
 
 @dataclass
 class Profile:
+    """A parsed OCI Linux seccomp profile: defaults plus a list of `SyscallRule`s."""
+
     default_action: str
     default_errno_ret: int | None
     default_errno: str | None
