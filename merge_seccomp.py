@@ -19,13 +19,12 @@ Merge policy:
 
 Inputs are fetched live from GitHub on every run (see DOCKER_URL/PODMAN_URL below) --
 tracking each engine's default branch, not a pinned commit, so the merge always reflects
-the current upstream defaults. Pass a local file path to --docker/--podman instead if you
-want to run against a fixed snapshot.
+the current upstream defaults. Edit those constants to a local file path instead if you
+want to run against a fixed snapshot. Prints the merged profile JSON to stdout.
 """
 
 from __future__ import annotations
 
-import argparse
 import json
 import sys
 import urllib.error
@@ -33,8 +32,6 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
-REPO_ROOT = Path(__file__).resolve().parent
 
 DOCKER_URL = "https://raw.githubusercontent.com/moby/profiles/main/seccomp/default.json"
 PODMAN_URL = "https://raw.githubusercontent.com/containers/common/main/pkg/seccomp/seccomp.json"
@@ -307,8 +304,8 @@ def build_merge(docker: Profile, podman: Profile) -> Profile:
     )
 
 
-def dump_profile(profile: Profile, path: Path) -> None:
-    """Write a canonical, upstream-style JSON profile, regrouping rules that share
+def to_json(profile: Profile) -> dict[str, Any]:
+    """Build a canonical, upstream-style JSON profile dict, regrouping rules that share
     action/args/comment/includes/excludes into one entry with a combined `names` list.
     """
     groups: dict[str, dict[str, Any]] = {}
@@ -348,7 +345,7 @@ def dump_profile(profile: Profile, path: Path) -> None:
         data["defaultErrno"] = profile.default_errno
     data["archMap"] = profile.arch_map
     data["syscalls"] = syscalls_json
-    path.write_text(json.dumps(data, indent=2) + "\n")
+    return data
 
 
 def validate(merged: Profile, docker: Profile, podman: Profile) -> list[str]:
@@ -374,15 +371,9 @@ def validate(merged: Profile, docker: Profile, podman: Profile) -> list[str]:
 
 
 def main() -> None:
-    """CLI entry point: load both profiles, merge, validate, and write the result."""
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--docker", default=DOCKER_URL, help="URL or local file path")
-    parser.add_argument("--podman", default=PODMAN_URL, help="URL or local file path")
-    parser.add_argument("--out", default=REPO_ROOT / "profiles/hardened-seccomp.json", type=Path)
-    args = parser.parse_args()
-
-    docker = load_profile(args.docker)
-    podman = load_profile(args.podman)
+    """Load both profiles, merge, validate, and print the result to stdout."""
+    docker = load_profile(DOCKER_URL)
+    podman = load_profile(PODMAN_URL)
     merged = build_merge(docker, podman)
 
     errors = validate(merged, docker, podman)
@@ -392,12 +383,7 @@ def main() -> None:
             print(f"  - {err}", file=sys.stderr)
         sys.exit(1)
 
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    dump_profile(merged, args.out)
-    json.loads(args.out.read_text())  # round-trip check
-
-    allowed_count = len({name for rule in merged.syscalls for name in rule.names})
-    print(f"Wrote {args.out} ({allowed_count} syscalls allowed)")
+    print(json.dumps(to_json(merged), indent=2))
 
 
 if __name__ == "__main__":
