@@ -34,7 +34,9 @@ from pathlib import Path
 from typing import Any
 
 DOCKER_URL = "https://raw.githubusercontent.com/moby/profiles/main/seccomp/default.json"
-PODMAN_URL = "https://raw.githubusercontent.com/containers/common/main/pkg/seccomp/seccomp.json"
+PODMAN_URL = (
+    "https://raw.githubusercontent.com/containers/common/main/pkg/seccomp/seccomp.json"
+)
 
 ALLOW = "SCMP_ACT_ALLOW"
 ERRNO = "SCMP_ACT_ERRNO"
@@ -174,7 +176,9 @@ def allow_rules_by_syscall(profile: Profile) -> dict[str, list[SyscallRule]]:
     return out
 
 
-def union_arch_maps(a: list[dict[str, Any]], b: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def union_arch_maps(
+    a: list[dict[str, Any]], b: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
     """Combine architecture entries declared by either profile (see module docstring)."""
     by_arch: dict[str, dict[str, Any]] = {}
     order: list[str] = []
@@ -221,13 +225,19 @@ def _merge_socket_rules() -> list[SyscallRule]:
         SyscallRule(
             names=["socket"],
             action=ALLOW,
-            args=[{"index": 2, "value": NETLINK_AUDIT, "op": "SCMP_CMP_NE"}, *not_banned_domain],
+            args=[
+                {"index": 2, "value": NETLINK_AUDIT, "op": "SCMP_CMP_NE"},
+                *not_banned_domain,
+            ],
             excludes={"caps": ["CAP_AUDIT_WRITE"]},
         ),
         SyscallRule(
             names=["socket"],
             action=ALLOW,
-            args=[{"index": 0, "value": AF_NETLINK, "op": "SCMP_CMP_NE"}, *not_banned_domain],
+            args=[
+                {"index": 0, "value": AF_NETLINK, "op": "SCMP_CMP_NE"},
+                *not_banned_domain,
+            ],
             excludes={"caps": ["CAP_AUDIT_WRITE"]},
         ),
         SyscallRule(
@@ -251,12 +261,21 @@ def _harden_clone_mask(rule: SyscallRule) -> SyscallRule:
     if not rule.args:
         return rule
     patched_args = [
-        {**arg, "value": arg["value"] | CLONE_NEWTIME}
-        if arg.get("op") == "SCMP_CMP_MASKED_EQ"
-        else arg
+        (
+            {**arg, "value": arg["value"] | CLONE_NEWTIME}
+            if arg.get("op") == "SCMP_CMP_MASKED_EQ"
+            else arg
+        )
         for arg in rule.args
     ]
-    return SyscallRule(rule.names, rule.action, patched_args, rule.comment, rule.includes, rule.excludes)
+    return SyscallRule(
+        rule.names,
+        rule.action,
+        patched_args,
+        rule.comment,
+        rule.includes,
+        rule.excludes,
+    )
 
 
 def build_merge(docker: Profile, podman: Profile) -> Profile:
@@ -370,7 +389,9 @@ def validate(merged: Profile, docker: Profile, podman: Profile) -> list[str]:
             if name in BLACKLIST:
                 errors.append(f"{name}: present in output but on the blacklist")
             elif name not in docker_names or name not in podman_names:
-                errors.append(f"{name}: present in output but not allowed by both engines")
+                errors.append(
+                    f"{name}: present in output but not allowed by both engines"
+                )
 
     return errors
 
