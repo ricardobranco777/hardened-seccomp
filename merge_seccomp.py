@@ -5,7 +5,7 @@ Merge policy:
   - A syscall is allowed only if BOTH Docker's and Podman's default profiles allow it.
   - Whichever side gates it (capability, kernel version, or argument) wins over an
     unconditional ALLOW on the other side.
-  - DENY_LIST below hard-blocks a further set of historically dangerous syscalls
+  - BLACKLIST below hard-blocks a further set of historically dangerous syscalls
     regardless of gating -- they stay blocked even if a capability is later granted
     (e.g. via --cap-add).
   - `socket()` and `clone()` get a hand-derived rule instead of the generic policy above;
@@ -52,7 +52,7 @@ CLONE_NEWTIME = 0x80
 # the intersection policy above (at least one engine doesn't allow them); they're listed
 # explicitly anyway so the block holds even if a future upstream default starts allowing
 # them on both sides.
-DENY_LIST = {
+BLACKLIST = {
     "ptrace": "process-introspection primitive used to read/inject into sibling processes and steal credentials",
     "process_vm_readv": "reads another process's memory directly, same risk class as ptrace",
     "process_vm_writev": "writes another process's memory directly, same risk class as ptrace",
@@ -277,7 +277,7 @@ def build_merge(docker: Profile, podman: Profile) -> Profile:
             merged.append(rule)
 
     for name in sorted(common):
-        if name in DENY_LIST:
+        if name in BLACKLIST:
             continue
         if name in SPECIAL_CASES:
             merged.extend(SPECIAL_CASES[name]())
@@ -352,7 +352,7 @@ def dump_profile(profile: Profile, path: Path) -> None:
 
 
 def validate(merged: Profile, docker: Profile, podman: Profile) -> list[str]:
-    """Check that every allowed syscall is either deny-list-free and allowed by both
+    """Check that every allowed syscall is either blacklist-free and allowed by both
     source profiles, or a documented special case. Returns human-readable errors; empty
     means the merge is consistent.
     """
@@ -365,8 +365,8 @@ def validate(merged: Profile, docker: Profile, podman: Profile) -> list[str]:
 
     for rule in merged.syscalls:
         for name in rule.names:
-            if name in DENY_LIST:
-                errors.append(f"{name}: present in output but on the deny-list")
+            if name in BLACKLIST:
+                errors.append(f"{name}: present in output but on the blacklist")
             elif name not in docker_names or name not in podman_names:
                 errors.append(f"{name}: present in output but not allowed by both engines")
 
