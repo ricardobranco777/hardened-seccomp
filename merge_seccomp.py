@@ -127,7 +127,7 @@ def fetch_text(source: str) -> str:
                 return response.read().decode("utf-8")
         except (urllib.error.URLError, TimeoutError) as exc:
             raise SystemExit(f"failed to fetch {source}: {exc}") from exc
-    return Path(source).read_text()
+    return Path(source).read_text(encoding="utf-8")
 
 
 def load_profile(source: str) -> Profile:
