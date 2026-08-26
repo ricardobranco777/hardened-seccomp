@@ -1,21 +1,17 @@
 #!/usr/bin/env python3
-"""Build a hardened seccomp profile that works with both Docker and Podman.
+"""Merge Docker's and Podman's default seccomp profiles into one profile that works with
+both: a syscall is allowed only if BOTH default profiles allow it, and whichever side
+gates it more strictly (capability, kernel version, or argument) wins.
 
-Merge policy:
-  - A syscall is allowed only if BOTH Docker's and Podman's default profiles allow it.
-  - Whichever side gates it (capability, kernel version, or argument) wins over an
-    unconditional ALLOW on the other side.
-  - BLACKLIST below hard-blocks a further set of historically dangerous syscalls
-    regardless of gating -- they stay blocked even if a capability is later granted
-    (e.g. via --cap-add).
-  - `socket()` and `clone()` get a hand-derived rule instead of the generic policy above;
-    see the comments on _merge_socket_rules and _harden_clone_mask for why.
-  - defaultErrnoRet/defaultErrno follow Podman's ENOSYS (the modern recommended choice --
-    lets callers treat a blocked syscall as "not implemented" rather than "permission
-    denied").
-  - archMap is the union of both engines' declared architectures: an arch entry only
-    affects whether the profile can load on that architecture, not what's allowed on the
-    one a container is actually running on, so union costs nothing and adds portability.
+Two things follow from "take the stricter combination" rather than a plain per-name
+comparison:
+  - `socket()` needs a hand-derived rule (see _merge_socket_rules): Docker and Podman each
+    restrict a different argument of the same call, so combining them isn't a matter of
+    picking one side's rule -- both restrictions have to hold at once.
+  - defaultErrnoRet/defaultErrno follow Podman's ENOSYS (the modern recommended choice over
+    Docker's EPERM), and archMap is the union of both engines' declared architectures (an
+    arch entry only affects whether the profile can load on that architecture, not what's
+    allowed on the one a container is actually running on).
 
 Inputs are fetched live from GitHub on every run (see DOCKER_URL/PODMAN_URL below) --
 tracking each engine's default branch, not a pinned commit, so the merge always reflects
@@ -43,44 +39,6 @@ AF_NETLINK = 16
 AF_ALG = 38
 AF_VSOCK = 40
 NETLINK_AUDIT = 9
-CLONE_NEWTIME = 0x80
-
-# Hard-blocked regardless of capability gating. Several of these are already excluded by
-# the intersection policy above (at least one engine doesn't allow them); they're listed
-# explicitly anyway so the block holds even if a future upstream default starts allowing
-# them on both sides.
-BLACKLIST = {
-    "ptrace": "process-introspection primitive used to read/inject into sibling processes and steal credentials",
-    "process_vm_readv": "reads another process's memory directly, same risk class as ptrace",
-    "process_vm_writev": "writes another process's memory directly, same risk class as ptrace",
-    "perf_event_open": "recurring source of Linux kernel privilege-escalation CVEs and Spectre-class side channels",
-    "bpf": "the BPF verifier is a repeated source of container-escape and kernel LPE vulnerabilities",
-    "userfaultfd": "race-condition/heap-grooming timing primitive used in public kernel-exploit PoCs",
-    "keyctl": "kernel keyring manipulation, implicated in past kernel LPE CVEs (e.g. CVE-2016-0728)",
-    "add_key": "kernel keyring manipulation, same rationale as keyctl",
-    "request_key": "kernel keyring manipulation, same rationale as keyctl",
-    "mount": "mount manipulation is central to most container-breakout techniques",
-    "umount2": "unmounting from inside the container is a breakout/tamper primitive",
-    "pivot_root": "root-filesystem-switching primitive used in container-escape chains",
-    "unshare": "namespace manipulation, a building block of several breakout techniques",
-    "setns": "namespace manipulation: lets a process join another namespace",
-    "kexec_load": "loads a new kernel to run on reboot, a severe host-compromise primitive",
-    "kexec_file_load": "file-based variant of kexec_load",
-    "reboot": "host power-management syscall, no legitimate use in an application container",
-    "acct": "kernel process accounting, a system-administration syscall not needed in a container",
-    "swapon": "swap-space management is a host-level concern",
-    "swapoff": "swap-space management is a host-level concern",
-    "nfsservctl": "legacy in-kernel NFS server control, removed from modern kernels",
-    "uselib": "obsolete shared-library-loading syscall",
-    "vm86": "legacy x86 virtual-8086 mode syscall",
-    "vm86old": "legacy x86 virtual-8086 mode syscall",
-    "query_module": "kernel module introspection, no legitimate use in an application container",
-    "init_module": "loads a kernel module, a direct host-compromise primitive",
-    "delete_module": "unloads a kernel module",
-    "finit_module": "file-descriptor-based variant of init_module",
-    "iopl": "grants direct I/O port access, a hardware-level primitive",
-    "ioperm": "grants direct I/O port access, a hardware-level primitive",
-}
 
 
 @dataclass
@@ -242,23 +200,6 @@ def _merge_socket_rules() -> list[SyscallRule]:
 SPECIAL_CASES = {"socket": _merge_socket_rules}
 
 
-def _harden_clone_mask(rule: SyscallRule) -> SyscallRule:
-    """Add CLONE_NEWTIME to clone()'s CLONE_NEW*-flags mask. Docker's mask (kept here
-    since Podman doesn't gate clone() at all) predates CLONE_NEWTIME (Linux 5.6) and
-    doesn't block it, so an unprivileged clone() could still create a time namespace.
-    Nothing legitimate needs that, so the mask is widened to cover it too.
-    """
-    if not rule.args:
-        return rule
-    patched_args = [
-        {**arg, "value": arg["value"] | CLONE_NEWTIME}
-        if arg.get("op") == "SCMP_CMP_MASKED_EQ"
-        else arg
-        for arg in rule.args
-    ]
-    return SyscallRule(rule.names, rule.action, patched_args, rule.comment, rule.includes, rule.excludes)
-
-
 def build_merge(docker: Profile, podman: Profile) -> Profile:
     """Apply the merge policy described in the module docstring."""
     docker_by_name = allow_rules_by_syscall(docker)
@@ -279,8 +220,6 @@ def build_merge(docker: Profile, podman: Profile) -> Profile:
             merged.append(rule)
 
     for name in sorted(common):
-        if name in BLACKLIST:
-            continue
         if name in SPECIAL_CASES:
             merged.extend(SPECIAL_CASES[name]())
             continue
@@ -297,8 +236,6 @@ def build_merge(docker: Profile, podman: Profile) -> Profile:
             add_gated(name, docker_rules)
         else:
             add_gated(name, docker_rules + podman_rules)
-
-    merged = [_harden_clone_mask(r) if r.names == ["clone"] else r for r in merged]
 
     return Profile(
         default_action=ERRNO,
@@ -354,9 +291,8 @@ def to_json(profile: Profile) -> dict[str, Any]:
 
 
 def validate(merged: Profile, docker: Profile, podman: Profile) -> list[str]:
-    """Check that every allowed syscall is either blacklist-free and allowed by both
-    source profiles, or a documented special case. Returns human-readable errors; empty
-    means the merge is consistent.
+    """Check that every allowed syscall is actually allowed by both source profiles.
+    Returns human-readable errors; empty means the merge is consistent.
     """
     errors = []
     if not merged.syscalls:
@@ -367,9 +303,7 @@ def validate(merged: Profile, docker: Profile, podman: Profile) -> list[str]:
 
     for rule in merged.syscalls:
         for name in rule.names:
-            if name in BLACKLIST:
-                errors.append(f"{name}: present in output but on the blacklist")
-            elif name not in docker_names or name not in podman_names:
+            if name not in docker_names or name not in podman_names:
                 errors.append(f"{name}: present in output but not allowed by both engines")
 
     return errors

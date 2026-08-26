@@ -410,6 +410,17 @@
     },
     {
       "names": [
+        "acct"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "caps": [
+          "CAP_SYS_PACCT"
+        ]
+      }
+    },
+    {
+      "names": [
         "arch_prctl"
       ],
       "action": "SCMP_ACT_ALLOW",
@@ -434,6 +445,50 @@
         "arches": [
           "arm",
           "arm64"
+        ]
+      }
+    },
+    {
+      "names": [
+        "bpf",
+        "clone",
+        "clone3",
+        "fanotify_init",
+        "fsconfig",
+        "fsmount",
+        "fsopen",
+        "fspick",
+        "lookup_dcookie",
+        "mount",
+        "mount_setattr",
+        "move_mount",
+        "open_tree",
+        "perf_event_open",
+        "quotactl",
+        "quotactl_fd",
+        "setdomainname",
+        "sethostname",
+        "setns",
+        "syslog",
+        "umount",
+        "umount2",
+        "unshare"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "caps": [
+          "CAP_SYS_ADMIN"
+        ]
+      }
+    },
+    {
+      "names": [
+        "bpf"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "caps": [
+          "CAP_BPF"
         ]
       }
     },
@@ -464,33 +519,6 @@
     },
     {
       "names": [
-        "clone",
-        "clone3",
-        "fanotify_init",
-        "fsconfig",
-        "fsmount",
-        "fsopen",
-        "fspick",
-        "lookup_dcookie",
-        "mount_setattr",
-        "move_mount",
-        "open_tree",
-        "quotactl",
-        "quotactl_fd",
-        "setdomainname",
-        "sethostname",
-        "syslog",
-        "umount"
-      ],
-      "action": "SCMP_ACT_ALLOW",
-      "includes": {
-        "caps": [
-          "CAP_SYS_ADMIN"
-        ]
-      }
-    },
-    {
-      "names": [
         "clone"
       ],
       "action": "SCMP_ACT_ALLOW",
@@ -506,7 +534,7 @@
       "args": [
         {
           "index": 0,
-          "value": 2114060416,
+          "value": 2114060288,
           "op": "SCMP_CMP_MASKED_EQ"
         }
       ]
@@ -530,10 +558,23 @@
       "args": [
         {
           "index": 1,
-          "value": 2114060416,
+          "value": 2114060288,
           "op": "SCMP_CMP_MASKED_EQ"
         }
       ]
+    },
+    {
+      "names": [
+        "delete_module",
+        "finit_module",
+        "init_module"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "caps": [
+          "CAP_SYS_MODULE"
+        ]
+      }
     },
     {
       "names": [
@@ -550,9 +591,24 @@
     },
     {
       "names": [
+        "ioperm",
+        "iopl"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "caps": [
+          "CAP_SYS_RAWIO"
+        ]
+      }
+    },
+    {
+      "names": [
         "kcmp",
         "pidfd_getfd",
-        "process_madvise"
+        "process_madvise",
+        "process_vm_readv",
+        "process_vm_writev",
+        "ptrace"
       ],
       "action": "SCMP_ACT_ALLOW",
       "includes": {
@@ -587,6 +643,17 @@
     },
     {
       "names": [
+        "perf_event_open"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "caps": [
+          "CAP_PERFMON"
+        ]
+      }
+    },
+    {
+      "names": [
         "personality"
       ],
       "action": "SCMP_ACT_ALLOW",
@@ -719,6 +786,28 @@
           "op": "SCMP_CMP_EQ"
         }
       ]
+    },
+    {
+      "names": [
+        "process_vm_readv",
+        "process_vm_writev",
+        "ptrace"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "minKernel": "4.8"
+      }
+    },
+    {
+      "names": [
+        "reboot"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "caps": [
+          "CAP_SYS_BOOT"
+        ]
+      }
     },
     {
       "names": [

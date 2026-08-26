@@ -1,16 +1,15 @@
 # hardened-seccomp
 
 A single seccomp profile that works with both Docker and Podman: only allows a syscall if
-both engines' defaults allow it (whichever side gates it more strictly wins), plus a curated
-blacklist that hard-blocks a further set of historically dangerous syscalls regardless of
-capability gating. The full policy and rationale are documented in `merge_seccomp.py`.
+both engines' defaults allow it, and whichever side gates it more strictly (capability,
+kernel version, or argument) wins. The full policy is documented in `merge_seccomp.py`.
 
 The ready-to-use profile is [`profiles/hardened-seccomp.json`](profiles/hardened-seccomp.json).
 
 ## Layout
 
 ```
-merge_seccomp.py                everything: fetching, parsing, merge policy, blacklist
+merge_seccomp.py                everything: fetching, parsing, merge policy
 profiles/hardened-seccomp.json  generated output -- the profile you actually use
 ```
 
@@ -27,8 +26,8 @@ python3 merge_seccomp.py > profiles/hardened-seccomp.json
 ```
 
 Validates the merge before printing (non-empty, every allowed syscall traceable to the
-blacklist-free intersection of both engines or a documented special case) and exits non-zero
-without printing anything if that fails -- including if either fetch fails.
+intersection of both engines) and exits non-zero without printing anything if that fails --
+including if either fetch fails.
 
 ## Using the profile
 
@@ -46,31 +45,21 @@ securityContext:
     localhostProfile: hardened-seccomp.json
 ```
 
-## Compatibility caveats
+## Known limitations
 
-This profile is intentionally more restrictive than either engine's own default. Workloads
-that need one of the following will need to trim `BLACKLIST` in `merge_seccomp.py`:
-
-- **Nested containers / Docker-in-Docker / Podman-in-Podman**: needs `mount`, `unshare`,
-  `setns`, `pivot_root`.
-- **Debuggers or process introspection**: needs `ptrace`, `process_vm_readv`,
-  `process_vm_writev`.
-- **Profilers / eBPF tooling**: needs `perf_event_open`, `bpf`.
-
-**Known gap, left open on purpose**: `socketcall` (the legacy multiplexed socket syscall used
-mainly by 32-bit x86 binaries) bypasses the AF_ALG/AF_VSOCK/netlink-audit restrictions in
-`_merge_socket_rules` entirely, since seccomp can't filter arguments hidden behind a userspace
-pointer. Docker tried blocking `socketcall` outright upstream and reverted it because it broke
-more legitimate x86 userland than expected (see `_merge_socket_rules`' docstring for the
-commit references); this profile leaves it allowed for the same reason rather than
-second-guessing that field experience. Closing this gap for real needs AppArmor or SELinux,
+`socketcall` (the legacy multiplexed socket syscall used mainly by 32-bit x86 binaries)
+bypasses the AF_ALG/AF_VSOCK/netlink-audit restrictions in `_merge_socket_rules` entirely,
+since seccomp can't filter arguments hidden behind a userspace pointer. Docker tried blocking
+`socketcall` outright upstream and reverted it because it broke more legitimate x86 userland
+than expected (see `_merge_socket_rules`'s docstring for the commit references); this profile
+leaves it allowed for the same reason. Closing this gap for real needs AppArmor or SELinux,
 not seccomp -- only an LSM hook at `security_socket_create` sees the real socket domain
 regardless of which syscall reached it.
 
-Newer syscalls that only one engine's default has picked up so far (e.g. Docker-only `mseal`,
-`uretprobe`, `listmount`/`statmount`) are dropped even when they'd be safe to allow -- that's
-the deliberate trade-off of a strict-intersection policy (minimalism over currency), not an
-oversight.
+Syscalls that only one engine's default allows (e.g. Docker-only `mseal`, `uretprobe`,
+`listmount`/`statmount`, or Podman-only `keyctl`, `pivot_root`) are dropped even when they'd
+be safe to allow on the engine that has them -- that's the intersection policy working as
+intended, not a bug.
 
 ## License
 
