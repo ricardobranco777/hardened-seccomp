@@ -19,8 +19,6 @@ the current upstream defaults. Edit those constants to a local file path instead
 want to run against a fixed snapshot. Prints the merged profile JSON to stdout.
 """
 
-from __future__ import annotations
-
 import json
 import sys
 import urllib.error
