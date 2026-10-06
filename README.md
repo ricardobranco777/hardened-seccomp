@@ -1,9 +1,16 @@
 # hardened-seccomp
 
-A single seccomp profile that works with both Docker and Podman: only allows a syscall if
-both engines' defaults allow it, and the strictest rule from either runtime wins -- every
-condition (capability, kernel version, argument) from both sides has to hold at once. The
-full policy is documented at the top of `merge.go`.
+A single seccomp profile that works with both Docker and Podman, taking the most hardened
+rule from each. Per syscall:
+
+- If both engines have rules for it, it is allowed only where both allow it -- every
+  condition (capability, kernel version, argument) from both sides has to hold at once --
+  and an explicit deny from either engine (with its errno) is kept, so a syscall one engine
+  allows and the other denies outright is denied.
+- If only one engine has rules for it, they are kept as they are: the other engine's
+  silence is not a decision about it.
+
+The full policy is documented at the top of `merge.go`.
 
 The ready-to-use profile is [`profiles/hardened-seccomp.json`](profiles/hardened-seccomp.json).
 
@@ -11,8 +18,7 @@ The ready-to-use profile is [`profiles/hardened-seccomp.json`](profiles/hardened
 
 ```
 main.go, merge.go               fetching, parsing, merge policy (Go)
-merge_test.go, testdata/        tests; golden output checked against the Python version
-merge_seccomp.py                the original Python implementation, same output
+merge_test.go, testdata/        tests; golden output for the snapshots in testdata/
 profiles/hardened-seccomp.json  generated output -- the profile you actually use
 ```
 
@@ -35,11 +41,9 @@ go run . -docker testdata/docker.json -podman testdata/podman.json
 
 Validates the merge before printing (non-empty, every allowed syscall present in both
 engines' defaults) and exits non-zero without printing anything if that fails --
-including if either fetch fails or a profile has a condition the merge doesn't know how
-to combine. `go test .` checks the output byte for byte against `testdata/`.
-
-`python3 merge_seccomp.py` still works, with no third-party dependencies, and prints the
-same profile.
+including if either fetch fails, a profile has a condition the merge doesn't know how to
+combine, or the result would have an ALLOW and a deny that can overlap (libseccomp doesn't
+define which wins). `go test .` checks the output byte for byte against `testdata/`.
 
 ## Using the profile
 
@@ -68,10 +72,18 @@ reason. Closing this gap for real needs AppArmor or SELinux,
 not seccomp -- only an LSM hook at `security_socket_create` sees the real socket domain
 regardless of which syscall reached it.
 
-Syscalls that only one engine's default allows (e.g. Docker-only `mseal`, `uretprobe`,
-`listmount`/`statmount`, or Podman-only `keyctl`, `pivot_root`) are dropped even when they'd
-be safe to allow on the engine that has them -- that's the intersection policy working as
-intended, not a bug.
+Because a syscall only one engine has rules for is kept, the profile is looser than a strict
+intersection of the two. It allows Docker-only syscalls that Podman has no rule for (`mseal`,
+`uretprobe`, `listmount`/`statmount`, ...) and Podman-only ones that Docker has no rule for
+and so denies by default: `keyctl`, `pivot_root` and `signal`, and `query_module` with
+`CAP_SYS_MODULE`. `keyctl` is the one to look at: the kernel keyring is not namespaced.
+
+Where one engine allows a syscall and the other denies it, the deny wins (`futex_wait`,
+`vmsplice`, `io_pgetevents`, `cachestat`, ... are denied because Podman denies them).
+
+Denied calls return `ENOSYS`, Podman's default, where Docker's own profile returns `EPERM`.
+Explicit denies keep their errno: Podman's `EPERM` rules, and its `EINVAL` for
+`socket(AF_NETLINK, ..., NETLINK_AUDIT)` without `CAP_AUDIT_WRITE`.
 
 A seccomp profile can't stop kernel bugs that are reachable through syscalls every container
 needs. For example, the AF_UNIX `SCM_RIGHTS` and reuseport cBPF escapes described in

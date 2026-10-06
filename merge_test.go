@@ -161,23 +161,141 @@ func TestUnionArchMaps(t *testing.T) {
 	}
 }
 
+// prof parses a profile with ENOSYS as the default errno (Podman's) and these syscall rules.
+func prof(t *testing.T, rules ...string) *Profile {
+	t.Helper()
+	p, err := parseProfile([]byte(`{"defaultAction": "SCMP_ACT_ERRNO", "defaultErrnoRet": 38, "syscalls": [` +
+		strings.Join(rules, ",") + `]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// mergeDump merges and returns the rules of the result as compact JSON, in output order.
+func mergeDump(t *testing.T, docker, podman *Profile) []string {
+	t.Helper()
+	merged := merge(docker, podman)
+	if errs := validate(merged, docker, podman); len(errs) > 0 {
+		t.Fatal(errs)
+	}
+	out, err := toJSON(merged)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lines []string
+	for _, r := range out.Syscalls {
+		b, _ := json.Marshal(r)
+		lines = append(lines, string(b))
+	}
+	return lines
+}
+
+func checkRules(t *testing.T, got []string, want ...string) {
+	t.Helper()
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got:\n  %s\nwant:\n  %s", strings.Join(got, "\n  "), strings.Join(want, "\n  "))
+	}
+}
+
+const (
+	allow      = `"action": "SCMP_ACT_ALLOW"`
+	eperm      = `"action": "SCMP_ACT_ERRNO", "errnoRet": 1, "errno": "EPERM"`
+	enosys     = `"action": "SCMP_ACT_ERRNO", "errnoRet": 38`
+	capSysAdm  = `{"caps": ["CAP_SYS_ADMIN"]}`
+	capPerfmon = `{"caps": ["CAP_PERFMON"]}`
+)
+
+func rule(names, fields string) string { return `{"names": [` + names + `], ` + fields + `}` }
+
+// A syscall only one engine has rules for keeps them: the other engine's silence is not a deny.
+func TestMergeOnlyOneEngine(t *testing.T) {
+	docker := prof(t, rule(`"mseal"`, allow), rule(`"lsm"`, allow+`, "includes": `+capSysAdm))
+	podman := prof(t, rule(`"kexec_load"`, eperm), rule(`"keyctl"`, allow))
+	checkRules(t, mergeDump(t, docker, podman),
+		`{"names":["kexec_load"],"action":"SCMP_ACT_ERRNO","errnoRet":1,"errno":"EPERM"}`,
+		`{"names":["keyctl","mseal"],"action":"SCMP_ACT_ALLOW"}`,
+		`{"names":["lsm"],"action":"SCMP_ACT_ALLOW","includes":{"caps":["CAP_SYS_ADMIN"]}}`)
+}
+
+// One engine allowing and the other denying outright: denied, with the denier's errno.
+func TestMergeDenyWins(t *testing.T) {
+	docker := prof(t, rule(`"vmsplice"`, allow))
+	podman := prof(t, rule(`"vmsplice"`, eperm))
+	checkRules(t, mergeDump(t, docker, podman),
+		`{"names":["vmsplice"],"action":"SCMP_ACT_ERRNO","errnoRet":1,"errno":"EPERM"}`)
+}
+
+// setns: Docker allows with CAP_SYS_ADMIN; Podman allows and then denies without it. The
+// ALLOW keeps the cap and Podman's EPERM stays, so nothing overlaps.
+func TestMergeKeepsDeny(t *testing.T) {
+	docker := prof(t, rule(`"setns"`, allow+`, "includes": `+capSysAdm))
+	podman := prof(t, rule(`"setns"`, allow), rule(`"setns"`, eperm+`, "excludes": `+capSysAdm))
+	checkRules(t, mergeDump(t, docker, podman),
+		`{"names":["setns"],"action":"SCMP_ACT_ALLOW","includes":{"caps":["CAP_SYS_ADMIN"]}}`,
+		`{"names":["setns"],"action":"SCMP_ACT_ERRNO","excludes":{"caps":["CAP_SYS_ADMIN"]},"errnoRet":1,"errno":"EPERM"}`)
+}
+
+// perf_event_open: Podman allows with CAP_PERFMON but denies without CAP_SYS_ADMIN, which
+// overlap. The deny wins, so the ALLOW has to require CAP_SYS_ADMIN as well.
+func TestMergeNarrowsAllowToDeny(t *testing.T) {
+	docker := prof(t, rule(`"perf_event_open"`, allow+`, "includes": `+capPerfmon))
+	podman := prof(t, rule(`"perf_event_open"`, allow+`, "includes": `+capPerfmon),
+		rule(`"perf_event_open"`, eperm+`, "excludes": `+capSysAdm))
+	checkRules(t, mergeDump(t, docker, podman),
+		`{"names":["perf_event_open"],"action":"SCMP_ACT_ALLOW","includes":{"caps":["CAP_PERFMON","CAP_SYS_ADMIN"]}}`,
+		`{"names":["perf_event_open"],"action":"SCMP_ACT_ERRNO","excludes":{"caps":["CAP_SYS_ADMIN"]},"errnoRet":1,"errno":"EPERM"}`)
+}
+
+// socket: the Podman rules that differ only in CAP_AUDIT_WRITE collapse into one.
+func TestMergeCollapsesComplementaryCaps(t *testing.T) {
+	docker := prof(t, rule(`"socket"`, allow+`, "args": [{"index": 0, "value": 10, "op": "SCMP_CMP_EQ"}]`))
+	podman := prof(t, rule(`"socket"`, allow+`, "excludes": {"caps": ["CAP_AUDIT_WRITE"]}`),
+		rule(`"socket"`, allow+`, "includes": {"caps": ["CAP_AUDIT_WRITE"]}`))
+	checkRules(t, mergeDump(t, docker, podman),
+		`{"names":["socket"],"action":"SCMP_ACT_ALLOW","args":[{"index":0,"value":10,"op":"SCMP_CMP_EQ"}]}`)
+}
+
+// A deny with the default action is dropped: libseccomp rejects it and it changes nothing.
+func TestMergeDropsDefaultDeny(t *testing.T) {
+	docker := prof(t, rule(`"clone3"`, allow+`, "includes": `+capSysAdm),
+		rule(`"clone3"`, enosys+`, "excludes": `+capSysAdm))
+	podman := prof(t, rule(`"clone3"`, allow))
+	checkRules(t, mergeDump(t, docker, podman),
+		`{"names":["clone3"],"action":"SCMP_ACT_ALLOW","includes":{"caps":["CAP_SYS_ADMIN"]}}`)
+}
+
 func TestValidate(t *testing.T) {
-	p := &Profile{Syscalls: []Rule{{Name: "a", Action: actAllow}}}
-	none := &Profile{}
+	p := prof(t, rule(`"a"`, allow))
+	deny := prof(t, rule(`"a"`, eperm))
+	none := prof(t)
 	if errs := validate(p, p, p); len(errs) != 0 {
 		t.Errorf("unexpected errors: %v", errs)
 	}
-	if errs := validate(p, p, none); len(errs) != 1 || !strings.HasPrefix(errs[0], "a:") {
+	if errs := validate(p, p, none); len(errs) != 0 {
+		t.Errorf("a syscall one engine doesn't mention is fine: %v", errs)
+	}
+	if errs := validate(p, p, deny); len(errs) != 1 || !strings.Contains(errs[0], "denied by Podman") {
 		t.Errorf("got %v", errs)
 	}
 	if errs := validate(none, p, p); len(errs) != 1 {
 		t.Errorf("empty merge not reported: %v", errs)
 	}
+	overlap := prof(t, rule(`"a"`, allow), rule(`"a"`, eperm+`, "excludes": `+capSysAdm))
+	if errs := validate(overlap, p, p); len(errs) != 1 || !strings.Contains(errs[0], "overlap") {
+		t.Errorf("overlapping allow and deny not reported: %v", errs)
+	}
+	disjoint := prof(t, rule(`"a"`, allow+`, "includes": `+capSysAdm), rule(`"a"`, eperm+`, "excludes": `+capSysAdm))
+	if errs := validate(disjoint, p, p); len(errs) != 0 {
+		t.Errorf("disjoint rules rejected: %v", errs)
+	}
 }
 
 // TestGolden merges the snapshots of Docker's and Podman's profiles in testdata and
-// compares the result byte for byte with the output of the original Python
-// implementation (merge_seccomp.py) on the same input.
+// compares the result byte for byte with testdata/hardened-seccomp.json. After changing the
+// policy, regenerate it with:
+//
+//	go run . -docker testdata/docker.json -podman testdata/podman.json > testdata/hardened-seccomp.json
 func TestGolden(t *testing.T) {
 	load := func(path string) *Profile {
 		t.Helper()

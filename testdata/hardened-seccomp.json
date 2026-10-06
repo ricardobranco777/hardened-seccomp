@@ -176,6 +176,7 @@
         "getuid",
         "getuid32",
         "getxattr",
+        "getxattrat",
         "inotify_add_watch",
         "inotify_init",
         "inotify_init1",
@@ -189,6 +190,7 @@
         "ioprio_get",
         "ioprio_set",
         "ipc",
+        "keyctl",
         "kill",
         "landlock_add_rule",
         "landlock_create_ruleset",
@@ -199,7 +201,9 @@
         "link",
         "linkat",
         "listen",
+        "listmount",
         "listxattr",
+        "listxattrat",
         "llistxattr",
         "lremovexattr",
         "lseek",
@@ -230,6 +234,7 @@
         "mq_timedsend_time64",
         "mq_unlink",
         "mremap",
+        "mseal",
         "msgctl",
         "msgget",
         "msgrcv",
@@ -249,6 +254,7 @@
         "pidfd_send_signal",
         "pipe",
         "pipe2",
+        "pivot_root",
         "pkey_alloc",
         "pkey_free",
         "pkey_mprotect",
@@ -278,10 +284,12 @@
         "recvmsg",
         "remap_file_pages",
         "removexattr",
+        "removexattrat",
         "rename",
         "renameat",
         "renameat2",
         "restart_syscall",
+        "riscv_hwprobe",
         "rmdir",
         "rseq",
         "rt_sigaction",
@@ -347,12 +355,14 @@
         "setuid",
         "setuid32",
         "setxattr",
+        "setxattrat",
         "shmat",
         "shmctl",
         "shmdt",
         "shmget",
         "shutdown",
         "sigaltstack",
+        "signal",
         "signalfd",
         "signalfd4",
         "sigprocmask",
@@ -364,6 +374,7 @@
         "stat64",
         "statfs",
         "statfs64",
+        "statmount",
         "statx",
         "symlink",
         "symlinkat",
@@ -395,6 +406,7 @@
         "uname",
         "unlink",
         "unlinkat",
+        "uretprobe",
         "utime",
         "utimensat",
         "utimensat_time64",
@@ -418,6 +430,19 @@
           "CAP_SYS_PACCT"
         ]
       }
+    },
+    {
+      "names": [
+        "acct"
+      ],
+      "action": "SCMP_ACT_ERRNO",
+      "excludes": {
+        "caps": [
+          "CAP_SYS_PACCT"
+        ]
+      },
+      "errnoRet": 1,
+      "errno": "EPERM"
     },
     {
       "names": [
@@ -450,6 +475,48 @@
     },
     {
       "names": [
+        "bdflush",
+        "cachestat",
+        "futex_requeue",
+        "futex_wait",
+        "futex_waitv",
+        "futex_wake",
+        "io_pgetevents",
+        "io_pgetevents_time64",
+        "kexec_file_load",
+        "kexec_load",
+        "map_shadow_stack",
+        "migrate_pages",
+        "move_pages",
+        "nfsservctl",
+        "nice",
+        "oldfstat",
+        "oldlstat",
+        "oldolduname",
+        "oldstat",
+        "olduname",
+        "pciconfig_iobase",
+        "pciconfig_read",
+        "pciconfig_write",
+        "sgetmask",
+        "ssetmask",
+        "swapoff",
+        "swapon",
+        "syscall",
+        "sysfs",
+        "uselib",
+        "userfaultfd",
+        "ustat",
+        "vm86",
+        "vm86old",
+        "vmsplice"
+      ],
+      "action": "SCMP_ACT_ERRNO",
+      "errnoRet": 1,
+      "errno": "EPERM"
+    },
+    {
+      "names": [
         "bpf",
         "clone",
         "clone3",
@@ -459,6 +526,9 @@
         "fsopen",
         "fspick",
         "lookup_dcookie",
+        "lsm_get_self_attr",
+        "lsm_list_modules",
+        "lsm_set_self_attr",
         "mount",
         "mount_setattr",
         "move_mount",
@@ -493,6 +563,20 @@
     },
     {
       "names": [
+        "bpf"
+      ],
+      "action": "SCMP_ACT_ERRNO",
+      "excludes": {
+        "caps": [
+          "CAP_SYS_ADMIN",
+          "CAP_BPF"
+        ]
+      },
+      "errnoRet": 1,
+      "errno": "EPERM"
+    },
+    {
+      "names": [
         "chroot"
       ],
       "action": "SCMP_ACT_ALLOW",
@@ -501,6 +585,19 @@
           "CAP_SYS_CHROOT"
         ]
       }
+    },
+    {
+      "names": [
+        "chroot"
+      ],
+      "action": "SCMP_ACT_ERRNO",
+      "excludes": {
+        "caps": [
+          "CAP_SYS_CHROOT"
+        ]
+      },
+      "errnoRet": 1,
+      "errno": "EPERM"
     },
     {
       "names": [
@@ -515,6 +612,22 @@
           "CAP_SYS_TIME"
         ]
       }
+    },
+    {
+      "names": [
+        "clock_settime",
+        "clock_settime64",
+        "settimeofday",
+        "stime"
+      ],
+      "action": "SCMP_ACT_ERRNO",
+      "excludes": {
+        "caps": [
+          "CAP_SYS_TIME"
+        ]
+      },
+      "errnoRet": 1,
+      "errno": "EPERM"
     },
     {
       "names": [
@@ -566,7 +679,8 @@
       "names": [
         "delete_module",
         "finit_module",
-        "init_module"
+        "init_module",
+        "query_module"
       ],
       "action": "SCMP_ACT_ALLOW",
       "includes": {
@@ -577,9 +691,26 @@
     },
     {
       "names": [
+        "delete_module",
+        "finit_module",
+        "init_module",
+        "query_module"
+      ],
+      "action": "SCMP_ACT_ERRNO",
+      "excludes": {
+        "caps": [
+          "CAP_SYS_MODULE"
+        ]
+      },
+      "errnoRet": 1,
+      "errno": "EPERM"
+    },
+    {
+      "names": [
         "get_mempolicy",
         "mbind",
-        "set_mempolicy"
+        "set_mempolicy",
+        "set_mempolicy_home_node"
       ],
       "action": "SCMP_ACT_ALLOW",
       "includes": {
@@ -602,6 +733,20 @@
     },
     {
       "names": [
+        "ioperm",
+        "iopl"
+      ],
+      "action": "SCMP_ACT_ERRNO",
+      "excludes": {
+        "caps": [
+          "CAP_SYS_RAWIO"
+        ]
+      },
+      "errnoRet": 1,
+      "errno": "EPERM"
+    },
+    {
+      "names": [
         "kcmp",
         "pidfd_getfd",
         "process_madvise",
@@ -615,6 +760,39 @@
           "CAP_SYS_PTRACE"
         ]
       }
+    },
+    {
+      "names": [
+        "kcmp",
+        "process_madvise"
+      ],
+      "action": "SCMP_ACT_ERRNO",
+      "excludes": {
+        "caps": [
+          "CAP_SYS_PTRACE"
+        ]
+      },
+      "errnoRet": 1,
+      "errno": "EPERM"
+    },
+    {
+      "names": [
+        "lookup_dcookie",
+        "perf_event_open",
+        "quotactl",
+        "quotactl_fd",
+        "setdomainname",
+        "sethostname",
+        "setns"
+      ],
+      "action": "SCMP_ACT_ERRNO",
+      "excludes": {
+        "caps": [
+          "CAP_SYS_ADMIN"
+        ]
+      },
+      "errnoRet": 1,
+      "errno": "EPERM"
     },
     {
       "names": [
@@ -642,12 +820,26 @@
     },
     {
       "names": [
+        "open_by_handle_at"
+      ],
+      "action": "SCMP_ACT_ERRNO",
+      "excludes": {
+        "caps": [
+          "CAP_DAC_READ_SEARCH"
+        ]
+      },
+      "errnoRet": 1,
+      "errno": "EPERM"
+    },
+    {
+      "names": [
         "perf_event_open"
       ],
       "action": "SCMP_ACT_ALLOW",
       "includes": {
         "caps": [
-          "CAP_PERFMON"
+          "CAP_PERFMON",
+          "CAP_SYS_ADMIN"
         ]
       }
     },
@@ -666,7 +858,8 @@
     },
     {
       "names": [
-        "personality"
+        "personality",
+        "socket"
       ],
       "action": "SCMP_ACT_ALLOW",
       "args": [
@@ -768,11 +961,6 @@
         "socket"
       ],
       "action": "SCMP_ACT_ALLOW",
-      "excludes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
       "args": [
         {
           "index": 0,
@@ -786,29 +974,6 @@
         "socket"
       ],
       "action": "SCMP_ACT_ALLOW",
-      "includes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
-      "args": [
-        {
-          "index": 0,
-          "value": 3,
-          "op": "SCMP_CMP_LT"
-        }
-      ]
-    },
-    {
-      "names": [
-        "socket"
-      ],
-      "action": "SCMP_ACT_ALLOW",
-      "excludes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
       "args": [
         {
           "index": 0,
@@ -822,65 +987,6 @@
         "socket"
       ],
       "action": "SCMP_ACT_ALLOW",
-      "includes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
-      "args": [
-        {
-          "index": 0,
-          "value": 7,
-          "op": "SCMP_CMP_EQ"
-        }
-      ]
-    },
-    {
-      "names": [
-        "socket"
-      ],
-      "action": "SCMP_ACT_ALLOW",
-      "excludes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
-      "args": [
-        {
-          "index": 0,
-          "value": 8,
-          "op": "SCMP_CMP_EQ"
-        }
-      ]
-    },
-    {
-      "names": [
-        "socket"
-      ],
-      "action": "SCMP_ACT_ALLOW",
-      "includes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
-      "args": [
-        {
-          "index": 0,
-          "value": 8,
-          "op": "SCMP_CMP_EQ"
-        }
-      ]
-    },
-    {
-      "names": [
-        "socket"
-      ],
-      "action": "SCMP_ACT_ALLOW",
-      "excludes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
       "args": [
         {
           "index": 0,
@@ -894,29 +1000,6 @@
         "socket"
       ],
       "action": "SCMP_ACT_ALLOW",
-      "includes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
-      "args": [
-        {
-          "index": 0,
-          "value": 9,
-          "op": "SCMP_CMP_EQ"
-        }
-      ]
-    },
-    {
-      "names": [
-        "socket"
-      ],
-      "action": "SCMP_ACT_ALLOW",
-      "excludes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
       "args": [
         {
           "index": 0,
@@ -930,29 +1013,6 @@
         "socket"
       ],
       "action": "SCMP_ACT_ALLOW",
-      "includes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
-      "args": [
-        {
-          "index": 0,
-          "value": 10,
-          "op": "SCMP_CMP_EQ"
-        }
-      ]
-    },
-    {
-      "names": [
-        "socket"
-      ],
-      "action": "SCMP_ACT_ALLOW",
-      "excludes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
       "args": [
         {
           "index": 0,
@@ -966,29 +1026,6 @@
         "socket"
       ],
       "action": "SCMP_ACT_ALLOW",
-      "includes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
-      "args": [
-        {
-          "index": 0,
-          "value": 13,
-          "op": "SCMP_CMP_EQ"
-        }
-      ]
-    },
-    {
-      "names": [
-        "socket"
-      ],
-      "action": "SCMP_ACT_ALLOW",
-      "excludes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
       "args": [
         {
           "index": 0,
@@ -1002,47 +1039,6 @@
         "socket"
       ],
       "action": "SCMP_ACT_ALLOW",
-      "includes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
-      "args": [
-        {
-          "index": 0,
-          "value": 14,
-          "op": "SCMP_CMP_EQ"
-        }
-      ]
-    },
-    {
-      "names": [
-        "socket"
-      ],
-      "action": "SCMP_ACT_ALLOW",
-      "excludes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
-      "args": [
-        {
-          "index": 0,
-          "value": 15,
-          "op": "SCMP_CMP_EQ"
-        }
-      ]
-    },
-    {
-      "names": [
-        "socket"
-      ],
-      "action": "SCMP_ACT_ALLOW",
-      "includes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
       "args": [
         {
           "index": 0,
@@ -1097,11 +1093,6 @@
         "socket"
       ],
       "action": "SCMP_ACT_ALLOW",
-      "excludes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
       "args": [
         {
           "index": 0,
@@ -1115,29 +1106,6 @@
         "socket"
       ],
       "action": "SCMP_ACT_ALLOW",
-      "includes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
-      "args": [
-        {
-          "index": 0,
-          "value": 17,
-          "op": "SCMP_CMP_EQ"
-        }
-      ]
-    },
-    {
-      "names": [
-        "socket"
-      ],
-      "action": "SCMP_ACT_ALLOW",
-      "excludes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
       "args": [
         {
           "index": 0,
@@ -1151,29 +1119,6 @@
         "socket"
       ],
       "action": "SCMP_ACT_ALLOW",
-      "includes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
-      "args": [
-        {
-          "index": 0,
-          "value": 18,
-          "op": "SCMP_CMP_EQ"
-        }
-      ]
-    },
-    {
-      "names": [
-        "socket"
-      ],
-      "action": "SCMP_ACT_ALLOW",
-      "excludes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
       "args": [
         {
           "index": 0,
@@ -1187,29 +1132,6 @@
         "socket"
       ],
       "action": "SCMP_ACT_ALLOW",
-      "includes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
-      "args": [
-        {
-          "index": 0,
-          "value": 21,
-          "op": "SCMP_CMP_EQ"
-        }
-      ]
-    },
-    {
-      "names": [
-        "socket"
-      ],
-      "action": "SCMP_ACT_ALLOW",
-      "excludes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
       "args": [
         {
           "index": 0,
@@ -1223,29 +1145,6 @@
         "socket"
       ],
       "action": "SCMP_ACT_ALLOW",
-      "includes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
-      "args": [
-        {
-          "index": 0,
-          "value": 22,
-          "op": "SCMP_CMP_EQ"
-        }
-      ]
-    },
-    {
-      "names": [
-        "socket"
-      ],
-      "action": "SCMP_ACT_ALLOW",
-      "excludes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
       "args": [
         {
           "index": 0,
@@ -1259,29 +1158,6 @@
         "socket"
       ],
       "action": "SCMP_ACT_ALLOW",
-      "includes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
-      "args": [
-        {
-          "index": 0,
-          "value": 24,
-          "op": "SCMP_CMP_EQ"
-        }
-      ]
-    },
-    {
-      "names": [
-        "socket"
-      ],
-      "action": "SCMP_ACT_ALLOW",
-      "excludes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
       "args": [
         {
           "index": 0,
@@ -1295,29 +1171,6 @@
         "socket"
       ],
       "action": "SCMP_ACT_ALLOW",
-      "includes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
-      "args": [
-        {
-          "index": 0,
-          "value": 26,
-          "op": "SCMP_CMP_EQ"
-        }
-      ]
-    },
-    {
-      "names": [
-        "socket"
-      ],
-      "action": "SCMP_ACT_ALLOW",
-      "excludes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
       "args": [
         {
           "index": 0,
@@ -1331,29 +1184,6 @@
         "socket"
       ],
       "action": "SCMP_ACT_ALLOW",
-      "includes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
-      "args": [
-        {
-          "index": 0,
-          "value": 27,
-          "op": "SCMP_CMP_EQ"
-        }
-      ]
-    },
-    {
-      "names": [
-        "socket"
-      ],
-      "action": "SCMP_ACT_ALLOW",
-      "excludes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
       "args": [
         {
           "index": 0,
@@ -1367,29 +1197,6 @@
         "socket"
       ],
       "action": "SCMP_ACT_ALLOW",
-      "includes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
-      "args": [
-        {
-          "index": 0,
-          "value": 28,
-          "op": "SCMP_CMP_EQ"
-        }
-      ]
-    },
-    {
-      "names": [
-        "socket"
-      ],
-      "action": "SCMP_ACT_ALLOW",
-      "excludes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
       "args": [
         {
           "index": 0,
@@ -1403,29 +1210,6 @@
         "socket"
       ],
       "action": "SCMP_ACT_ALLOW",
-      "includes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
-      "args": [
-        {
-          "index": 0,
-          "value": 29,
-          "op": "SCMP_CMP_EQ"
-        }
-      ]
-    },
-    {
-      "names": [
-        "socket"
-      ],
-      "action": "SCMP_ACT_ALLOW",
-      "excludes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
       "args": [
         {
           "index": 0,
@@ -1439,29 +1223,6 @@
         "socket"
       ],
       "action": "SCMP_ACT_ALLOW",
-      "includes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
-      "args": [
-        {
-          "index": 0,
-          "value": 30,
-          "op": "SCMP_CMP_EQ"
-        }
-      ]
-    },
-    {
-      "names": [
-        "socket"
-      ],
-      "action": "SCMP_ACT_ALLOW",
-      "excludes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
       "args": [
         {
           "index": 0,
@@ -1475,29 +1236,6 @@
         "socket"
       ],
       "action": "SCMP_ACT_ALLOW",
-      "includes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
-      "args": [
-        {
-          "index": 0,
-          "value": 31,
-          "op": "SCMP_CMP_EQ"
-        }
-      ]
-    },
-    {
-      "names": [
-        "socket"
-      ],
-      "action": "SCMP_ACT_ALLOW",
-      "excludes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
       "args": [
         {
           "index": 0,
@@ -1511,29 +1249,6 @@
         "socket"
       ],
       "action": "SCMP_ACT_ALLOW",
-      "includes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
-      "args": [
-        {
-          "index": 0,
-          "value": 32,
-          "op": "SCMP_CMP_EQ"
-        }
-      ]
-    },
-    {
-      "names": [
-        "socket"
-      ],
-      "action": "SCMP_ACT_ALLOW",
-      "excludes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
       "args": [
         {
           "index": 0,
@@ -1547,29 +1262,6 @@
         "socket"
       ],
       "action": "SCMP_ACT_ALLOW",
-      "includes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
-      "args": [
-        {
-          "index": 0,
-          "value": 33,
-          "op": "SCMP_CMP_EQ"
-        }
-      ]
-    },
-    {
-      "names": [
-        "socket"
-      ],
-      "action": "SCMP_ACT_ALLOW",
-      "excludes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
       "args": [
         {
           "index": 0,
@@ -1583,29 +1275,6 @@
         "socket"
       ],
       "action": "SCMP_ACT_ALLOW",
-      "includes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
-      "args": [
-        {
-          "index": 0,
-          "value": 35,
-          "op": "SCMP_CMP_EQ"
-        }
-      ]
-    },
-    {
-      "names": [
-        "socket"
-      ],
-      "action": "SCMP_ACT_ALLOW",
-      "excludes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
       "args": [
         {
           "index": 0,
@@ -1619,29 +1288,6 @@
         "socket"
       ],
       "action": "SCMP_ACT_ALLOW",
-      "includes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
-      "args": [
-        {
-          "index": 0,
-          "value": 36,
-          "op": "SCMP_CMP_EQ"
-        }
-      ]
-    },
-    {
-      "names": [
-        "socket"
-      ],
-      "action": "SCMP_ACT_ALLOW",
-      "excludes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
       "args": [
         {
           "index": 0,
@@ -1655,29 +1301,6 @@
         "socket"
       ],
       "action": "SCMP_ACT_ALLOW",
-      "includes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
-      "args": [
-        {
-          "index": 0,
-          "value": 39,
-          "op": "SCMP_CMP_EQ"
-        }
-      ]
-    },
-    {
-      "names": [
-        "socket"
-      ],
-      "action": "SCMP_ACT_ALLOW",
-      "excludes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
       "args": [
         {
           "index": 0,
@@ -1691,29 +1314,6 @@
         "socket"
       ],
       "action": "SCMP_ACT_ALLOW",
-      "includes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
-      "args": [
-        {
-          "index": 0,
-          "value": 41,
-          "op": "SCMP_CMP_EQ"
-        }
-      ]
-    },
-    {
-      "names": [
-        "socket"
-      ],
-      "action": "SCMP_ACT_ALLOW",
-      "excludes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
       "args": [
         {
           "index": 0,
@@ -1727,29 +1327,6 @@
         "socket"
       ],
       "action": "SCMP_ACT_ALLOW",
-      "includes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
-      "args": [
-        {
-          "index": 0,
-          "value": 42,
-          "op": "SCMP_CMP_EQ"
-        }
-      ]
-    },
-    {
-      "names": [
-        "socket"
-      ],
-      "action": "SCMP_ACT_ALLOW",
-      "excludes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
       "args": [
         {
           "index": 0,
@@ -1763,29 +1340,6 @@
         "socket"
       ],
       "action": "SCMP_ACT_ALLOW",
-      "includes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
-      "args": [
-        {
-          "index": 0,
-          "value": 43,
-          "op": "SCMP_CMP_EQ"
-        }
-      ]
-    },
-    {
-      "names": [
-        "socket"
-      ],
-      "action": "SCMP_ACT_ALLOW",
-      "excludes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
       "args": [
         {
           "index": 0,
@@ -1799,15 +1353,10 @@
         "socket"
       ],
       "action": "SCMP_ACT_ALLOW",
-      "includes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
       "args": [
         {
           "index": 0,
-          "value": 44,
+          "value": 45,
           "op": "SCMP_CMP_EQ"
         }
       ]
@@ -1816,7 +1365,7 @@
       "names": [
         "socket"
       ],
-      "action": "SCMP_ACT_ALLOW",
+      "action": "SCMP_ACT_ERRNO",
       "excludes": {
         "caps": [
           "CAP_AUDIT_WRITE"
@@ -1825,28 +1374,17 @@
       "args": [
         {
           "index": 0,
-          "value": 45,
+          "value": 16,
           "op": "SCMP_CMP_EQ"
-        }
-      ]
-    },
-    {
-      "names": [
-        "socket"
-      ],
-      "action": "SCMP_ACT_ALLOW",
-      "includes": {
-        "caps": [
-          "CAP_AUDIT_WRITE"
-        ]
-      },
-      "args": [
+        },
         {
-          "index": 0,
-          "value": 45,
+          "index": 2,
+          "value": 9,
           "op": "SCMP_CMP_EQ"
         }
-      ]
+      ],
+      "errnoRet": 22,
+      "errno": "EINVAL"
     },
     {
       "names": [
@@ -1881,6 +1419,19 @@
           "CAP_SYS_TTY_CONFIG"
         ]
       }
+    },
+    {
+      "names": [
+        "vhangup"
+      ],
+      "action": "SCMP_ACT_ERRNO",
+      "excludes": {
+        "caps": [
+          "CAP_SYS_TTY_CONFIG"
+        ]
+      },
+      "errnoRet": 1,
+      "errno": "EPERM"
     }
   ]
 }

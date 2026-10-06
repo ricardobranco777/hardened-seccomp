@@ -3,16 +3,28 @@
 package main
 
 // Merge Docker's and Podman's default seccomp profiles into one profile that works with
-// both: the strictest rule from either runtime wins.
+// both, picking the most hardened rule from each.
 //
-// A syscall is allowed only if BOTH profiles allow it, and only when the conditions of the
-// rule that allows it in each profile hold at the same time. Each profile lists several
-// ALLOW rules per syscall (alternatives), so the merge intersects them pairwise: every
-// Docker rule is ANDed with every Podman rule (capabilities and arches required by either,
-// kernel version the newer of the two, argument checks from both), and contradictory or
-// redundant combinations are dropped. This is what makes e.g. socket() come out right --
-// Docker restricts the address family, Podman the netlink protocol, and both have to hold --
-// with no per-syscall special cases.
+// The two profiles are compared one syscall name at a time:
+//
+//   - If only one profile has rules for the syscall, they are kept as they are. The other
+//     engine's default would deny it, but that is not a decision about this syscall: it is
+//     often just a newer syscall (mseal, uretprobe, ...) or an old one it never listed.
+//   - If both do, an ALLOW survives only where both allow: each Docker ALLOW rule is ANDed
+//     with each Podman ALLOW rule (capabilities and arches required by either, kernel
+//     version the newer of the two, argument checks from both), and contradictory or
+//     redundant combinations are dropped. This is what makes e.g. socket() come out right --
+//     Docker restricts the address family, Podman the netlink protocol, and both have to
+//     hold -- with no per-syscall special cases. Pairs of rules that differ only in a
+//     capability being required by one and excluded by the other are one rule without it.
+//   - Explicit denies (ERRNO and the like) from either profile are kept, with their errno,
+//     so a deny from either engine wins. A syscall that one engine allows and the other
+//     denies outright (futex_wait, vmsplice, ...) ends up denied.
+//
+// libseccomp does not define what happens when an ALLOW and a deny for the same syscall
+// overlap (compiled, Podman's own setns comes out allowed although its profile denies it
+// without CAP_SYS_ADMIN), so the merge refuses to produce such a profile: for each syscall
+// the rules with different actions must be provably disjoint.
 //
 // Other choices:
 //   - defaultErrnoRet/defaultErrno follow Podman's ENOSYS (the modern recommended choice over
@@ -24,6 +36,7 @@ package main
 //     don't apply to it. Docker tried blocking it outright (moby/profiles 7158007a8300) and
 //     reverted (3c2832431472) because it broke too much x86 userland. Closing that gap needs
 //     AppArmor or SELinux.
+//   - Comments are kept on rules copied unchanged and dropped from merged ones.
 
 import (
 	"bytes"
@@ -104,9 +117,12 @@ type ArchEntry struct {
 type Rule struct {
 	Name     string
 	Action   string
+	Comment  string
 	Args     []Arg
 	Includes *Cond
 	Excludes *Cond
+	ErrnoRet *int
+	Errno    *string
 }
 
 // Profile is a parsed OCI Linux seccomp profile.
@@ -121,9 +137,12 @@ type Profile struct {
 type rawRule struct {
 	Names    []string `json:"names"`
 	Action   string   `json:"action"`
+	Comment  string   `json:"comment"`
 	Args     []Arg    `json:"args"`
 	Includes *Cond    `json:"includes"`
 	Excludes *Cond    `json:"excludes"`
+	ErrnoRet *int     `json:"errnoRet"`
+	Errno    *string  `json:"errno"`
 }
 
 type rawProfile struct {
@@ -165,25 +184,32 @@ func parseProfile(data []byte) (*Profile, error) {
 			p.Syscalls = append(p.Syscalls, Rule{
 				Name:     name,
 				Action:   r.Action,
+				Comment:  r.Comment,
 				Args:     r.Args,
 				Includes: r.Includes.nonEmpty(),
 				Excludes: r.Excludes.nonEmpty(),
+				ErrnoRet: r.ErrnoRet,
+				Errno:    r.Errno,
 			})
 		}
 	}
 	return p, nil
 }
 
-// allowRulesByName maps syscall name to its SCMP_ACT_ALLOW rules.
-//
-// Both profiles mix a handful of explicit per-syscall SCMP_ACT_ERRNO rules in among the
-// ALLOW rules (redundant capability restatements, or explicit always-on denies). Only
-// ALLOW rules define what a profile actually allows, so those are ignored here.
-func allowRulesByName(p *Profile) map[string][]Rule {
+// rulesByName maps syscall name to its rules, in profile order.
+func rulesByName(p *Profile) map[string][]Rule {
 	out := map[string][]Rule{}
 	for _, r := range p.Syscalls {
-		if r.Action == actAllow {
-			out[r.Name] = append(out[r.Name], r)
+		out[r.Name] = append(out[r.Name], r)
+	}
+	return out
+}
+
+func filterRules(rules []Rule, allow bool) []Rule {
+	var out []Rule
+	for _, r := range rules {
+		if (r.Action == actAllow) == allow {
+			out = append(out, r)
 		}
 	}
 	return out
@@ -411,12 +437,15 @@ func dropRedundant(rules []Rule) []Rule {
 
 // merge applies the merge policy described at the top of this file.
 func merge(docker, podman *Profile) *Profile {
-	dockerRules := allowRulesByName(docker)
-	podmanRules := allowRulesByName(podman)
+	dockerRules := rulesByName(docker)
+	podmanRules := rulesByName(podman)
 
 	var names []string
 	for name := range dockerRules {
-		if _, ok := podmanRules[name]; ok {
+		names = append(names, name)
+	}
+	for name := range podmanRules {
+		if _, ok := dockerRules[name]; !ok {
 			names = append(names, name)
 		}
 	}
@@ -424,16 +453,21 @@ func merge(docker, podman *Profile) *Profile {
 
 	var merged []Rule
 	for _, name := range names {
-		var alternatives []Rule
-		for _, d := range dockerRules[name] {
-			for _, p := range podmanRules[name] {
-				if r, ok := intersectRules(name, d, p); ok {
-					alternatives = append(alternatives, r)
-				}
-			}
+		d, p := dockerRules[name], podmanRules[name]
+		switch {
+		case len(p) == 0:
+			merged = append(merged, d...)
+		case len(d) == 0:
+			merged = append(merged, p...)
+		default:
+			merged = append(merged, combine(name, d, p)...)
 		}
-		merged = append(merged, dropRedundant(alternatives)...)
 	}
+	// libseccomp refuses a rule whose action is the default one, and it would add nothing:
+	// no ALLOW overlaps a deny (see validate), so the call falls through to the same action.
+	merged = slices.DeleteFunc(merged, func(r Rule) bool {
+		return r.Action == actErrno && errnoOf(r.ErrnoRet) == errnoOf(podman.DefaultErrnoRet)
+	})
 	return &Profile{
 		DefaultAction:   actErrno,
 		DefaultErrnoRet: podman.DefaultErrnoRet,
@@ -443,12 +477,155 @@ func merge(docker, podman *Profile) *Profile {
 	}
 }
 
+// errnoOf is the errno of an ERRNO action: EPERM if the profile doesn't say.
+func errnoOf(p *int) int {
+	if p == nil {
+		return 1
+	}
+	return *p
+}
+
+// combine merges the rules both profiles have for one syscall.
+func combine(name string, d, p []Rule) []Rule {
+	var denies []Rule
+	seen := map[string]bool{}
+	for _, r := range slices.Concat(filterRules(d, false), filterRules(p, false)) {
+		if key := ruleKey(r); !seen[key] {
+			seen[key] = true
+			denies = append(denies, r)
+		}
+	}
+	denies = dropRedundantDenies(denies)
+
+	var alternatives []Rule
+	for _, da := range filterRules(d, true) {
+		for _, pa := range filterRules(p, true) {
+			if r, ok := intersectRules(name, da, pa); ok {
+				alternatives = append(alternatives, r)
+			}
+		}
+	}
+	for _, deny := range denies {
+		alternatives = subtract(name, alternatives, deny)
+	}
+	return append(dropRedundant(collapseComplements(dropRedundant(alternatives))), denies...)
+}
+
+// dropRedundantDenies removes denies whose calls another deny with the same action covers.
+func dropRedundantDenies(denies []Rule) []Rule {
+	var out []Rule
+	for _, group := range groupBy(denies, func(r Rule) string {
+		key, _ := json.Marshal([]any{r.Action, r.ErrnoRet, r.Errno})
+		return string(key)
+	}) {
+		out = append(out, dropRedundant(group)...)
+	}
+	return out
+}
+
+// groupBy splits rules by key, in order of first appearance.
+func groupBy(rules []Rule, key func(Rule) string) [][]Rule {
+	var groups [][]Rule
+	index := map[string]int{}
+	for _, r := range rules {
+		k := key(r)
+		i, ok := index[k]
+		if !ok {
+			i = len(groups)
+			index[k] = i
+			groups = append(groups, nil)
+		}
+		groups[i] = append(groups[i], r)
+	}
+	return groups
+}
+
+// subtract removes from the ALLOW rules the calls that deny catches, so the two can't
+// overlap. That is only possible when deny is just "none of these capabilities" (as in
+// Podman's perf_event_open: ERRNO unless CAP_SYS_ADMIN): the allow must then require one
+// of them. For any other deny the rules are left alone, and validate rejects an overlap.
+func subtract(name string, allows []Rule, deny Rule) []Rule {
+	simple := len(deny.Args) == 0 && deny.Includes == nil && deny.Excludes != nil &&
+		len(deny.Excludes.Arches) == 0
+	var out []Rule
+	for _, a := range allows {
+		if _, overlap := intersectRules(name, a, deny); !overlap || !simple {
+			out = append(out, a)
+			continue
+		}
+		for _, c := range deny.Excludes.Caps {
+			if r, ok := intersectRules(name, a, Rule{Includes: &Cond{Caps: []string{c}}}); ok {
+				out = append(out, r)
+			}
+		}
+	}
+	return out
+}
+
+// collapseComplements joins rules that differ only in a capability being required by one and
+// excluded by the other: together they allow the call with or without it.
+func collapseComplements(rules []Rule) []Rule {
+	for changed := true; changed; {
+		changed = false
+	search:
+		for i := range rules {
+			for j := range rules {
+				if i == j {
+					continue
+				}
+				if r, ok := complement(rules[i], rules[j]); ok {
+					rules[i] = r
+					rules = slices.Delete(rules, j, j+1)
+					changed = true
+					break search
+				}
+			}
+		}
+	}
+	return rules
+}
+
+// complement returns a without cap C, if a excludes C and b requires it and the two are
+// otherwise the same.
+func complement(a, b Rule) (Rule, bool) {
+	incA, incB := cond(a.Includes), cond(b.Includes)
+	excA, excB := cond(a.Excludes), cond(b.Excludes)
+	for _, c := range incB.Caps {
+		if !slices.Contains(excA.Caps, c) {
+			continue
+		}
+		excCaps := difference(excA.Caps, []string{c})
+		if subset(incA.Caps, difference(incB.Caps, []string{c})) &&
+			subset(difference(incB.Caps, []string{c}), incA.Caps) &&
+			subset(excCaps, excB.Caps) && subset(excB.Caps, excCaps) &&
+			(incA.Arches == nil) == (incB.Arches == nil) &&
+			subset(incA.Arches, incB.Arches) && subset(incB.Arches, incA.Arches) &&
+			subset(excA.Arches, excB.Arches) && subset(excB.Arches, excA.Arches) &&
+			incA.MinKernel == incB.MinKernel &&
+			subsetFunc(a.Args, b.Args) && subsetFunc(b.Args, a.Args) {
+			a.Excludes = (&Cond{Caps: excCaps, Arches: excA.Arches}).nonEmpty()
+			return a, true
+		}
+	}
+	return Rule{}, false
+}
+
+// ruleKey identifies a rule ignoring its name.
+func ruleKey(r Rule) string {
+	key, _ := json.Marshal(outRule{Action: r.Action, Comment: r.Comment, Includes: r.Includes,
+		Excludes: r.Excludes, Args: r.Args, ErrnoRet: r.ErrnoRet, Errno: r.Errno})
+	return string(key)
+}
+
 type outRule struct {
 	Names    []string `json:"names"`
 	Action   string   `json:"action"`
+	Comment  string   `json:"comment,omitempty"`
 	Includes *Cond    `json:"includes,omitempty"`
 	Excludes *Cond    `json:"excludes,omitempty"`
 	Args     []Arg    `json:"args,omitempty"`
+	ErrnoRet *int     `json:"errnoRet,omitempty"`
+	Errno    *string  `json:"errno,omitempty"`
 }
 
 type outProfile struct {
@@ -460,21 +637,19 @@ type outProfile struct {
 }
 
 // toJSON builds the canonical, upstream-style profile, regrouping rules that share
-// action/args/includes/excludes into one entry with a combined, sorted names list.
+// everything but the name into one entry with a combined, sorted names list.
 func toJSON(p *Profile) (outProfile, error) {
 	var groups []*outRule
 	index := map[string]*outRule{}
 	for _, r := range p.Syscalls {
-		g := outRule{Action: r.Action, Includes: r.Includes, Excludes: r.Excludes, Args: r.Args}
-		key, err := json.Marshal(g)
-		if err != nil {
-			return outProfile{}, err
-		}
-		if index[string(key)] == nil {
-			index[string(key)] = &g
+		key := ruleKey(r)
+		if index[key] == nil {
+			g := outRule{Action: r.Action, Comment: r.Comment, Includes: r.Includes, Excludes: r.Excludes,
+				Args: r.Args, ErrnoRet: r.ErrnoRet, Errno: r.Errno}
+			index[key] = &g
 			groups = append(groups, &g)
 		}
-		index[string(key)].Names = append(index[string(key)].Names, r.Name)
+		index[key].Names = append(index[key].Names, r.Name)
 	}
 	out := outProfile{
 		DefaultAction:   p.DefaultAction,
@@ -491,23 +666,54 @@ func toJSON(p *Profile) (outProfile, error) {
 	return out, nil
 }
 
-// validate checks that every allowed syscall is actually allowed by both source profiles.
-// It returns human-readable errors; empty means the merge is consistent.
+// validate checks the merged profile against the two sources. It returns human-readable
+// errors; empty means the merge is consistent:
+//   - a syscall is allowed only if every engine that has rules for it allows it somewhere;
+//   - rules of one syscall with different actions can't overlap.
 func validate(merged, docker, podman *Profile) []string {
 	var errs []string
 	if len(merged.Syscalls) == 0 {
 		errs = append(errs, "merged profile has no syscall rules")
 	}
-	dockerRules := allowRulesByName(docker)
-	podmanRules := allowRulesByName(podman)
-	for _, r := range merged.Syscalls {
-		_, inDocker := dockerRules[r.Name]
-		_, inPodman := podmanRules[r.Name]
-		if !inDocker || !inPodman {
-			errs = append(errs, r.Name+": present in output but not allowed by both engines")
+	engines := []struct {
+		name  string
+		rules map[string][]Rule
+	}{{"Docker", rulesByName(docker)}, {"Podman", rulesByName(podman)}}
+
+	byName := rulesByName(merged)
+	names := make([]string, 0, len(byName))
+	for name := range byName {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		rules := byName[name]
+		if len(filterRules(rules, true)) > 0 {
+			for _, e := range engines {
+				if r := e.rules[name]; len(r) > 0 && len(filterRules(r, true)) == 0 {
+					errs = append(errs, name+": allowed in output but denied by "+e.name)
+				}
+			}
+		}
+		for i, a := range rules {
+			for _, b := range rules[i+1:] {
+				if a.Action == b.Action && slices.Equal(ptrs(a.ErrnoRet), ptrs(b.ErrnoRet)) {
+					continue
+				}
+				if _, overlap := intersectRules(name, a, b); overlap {
+					errs = append(errs, name+": rules with different actions may overlap")
+				}
+			}
 		}
 	}
 	return errs
+}
+
+func ptrs(p *int) []int {
+	if p == nil {
+		return nil
+	}
+	return []int{*p}
 }
 
 // set helpers: inputs are treated as sets, results are sorted and deduplicated.
