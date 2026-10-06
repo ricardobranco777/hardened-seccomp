@@ -3,14 +3,16 @@
 A single seccomp profile that works with both Docker and Podman: only allows a syscall if
 both engines' defaults allow it, and the strictest rule from either runtime wins -- every
 condition (capability, kernel version, argument) from both sides has to hold at once. The
-full policy is documented in `merge_seccomp.py`.
+full policy is documented at the top of `merge.go`.
 
 The ready-to-use profile is [`profiles/hardened-seccomp.json`](profiles/hardened-seccomp.json).
 
 ## Layout
 
 ```
-merge_seccomp.py                everything: fetching, parsing, merge policy
+main.go, merge.go               fetching, parsing, merge policy (Go)
+merge_test.go, testdata/        tests; golden output checked against the Python version
+merge_seccomp.py                the original Python implementation, same output
 profiles/hardened-seccomp.json  generated output -- the profile you actually use
 ```
 
@@ -19,16 +21,25 @@ default branch, not a pinned commit) -- there's nothing to vendor or keep in syn
 
 ## Regenerating
 
-Plain Python 3, no third-party dependencies. Fetches both upstream profiles from GitHub,
-merges them, and prints the result to stdout:
+Fetches both upstream profiles from GitHub, merges them, and prints the result to stdout:
 
 ```sh
-python3 merge_seccomp.py > profiles/hardened-seccomp.json
+go run . > profiles/hardened-seccomp.json
+```
+
+`-docker` and `-podman` take a URL or a local file instead, for a fixed snapshot:
+
+```sh
+go run . -docker testdata/docker.json -podman testdata/podman.json
 ```
 
 Validates the merge before printing (non-empty, every allowed syscall present in both
 engines' defaults) and exits non-zero without printing anything if that fails --
-including if either fetch fails.
+including if either fetch fails or a profile has a condition the merge doesn't know how
+to combine. `go test .` checks the output byte for byte against `testdata/`.
+
+`python3 merge_seccomp.py` still works, with no third-party dependencies, and prints the
+same profile.
 
 ## Using the profile
 
