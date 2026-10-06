@@ -42,8 +42,8 @@ go run . -docker testdata/docker.json -podman testdata/podman.json
 Validates the merge before printing (non-empty, every allowed syscall present in both
 engines' defaults) and exits non-zero without printing anything if that fails --
 including if either fetch fails, a profile has a condition the merge doesn't know how to
-combine, or the result would have an ALLOW and a deny that can overlap (libseccomp doesn't
-define which wins). `go test .` checks the output byte for byte against `testdata/`.
+combine, or the result would have an ALLOW and a deny that can overlap (libseccomp resolves
+those by rule order, so the result would depend on it). `go test .` checks the output byte for byte against `testdata/`.
 
 ## Using the profile
 
@@ -60,6 +60,44 @@ securityContext:
     type: Localhost
     localhostProfile: hardened-seccomp.json
 ```
+
+## Checking the profile
+
+[seccat](https://github.com/ricardobranco777/seccat) reads the profile (`seccat -c docker -a
+amd64 -k 6.8 profiles/hardened-seccomp.json`) and warns when an ALLOW and a deny for one
+syscall overlap, which this profile should never do. Its `tools/secprobe` shows what a
+container really gets:
+
+```sh
+for e in docker podman; do for call in setns keyctl futex_waitv perf_event_open; do
+  sudo $e run --rm -v ~/seccat:/seccat:ro,z --security-opt seccomp=$PWD/profiles/hardened-seccomp.json \
+    fedora /seccat/tools/secprobe $call; done; done
+sudo docker run --rm --security-opt seccomp=$PWD/profiles/hardened-seccomp.json fedora unshare -Ur id
+sudo podman run --rm --security-opt seccomp=$PWD/profiles/hardened-seccomp.json fedora unshare -Ur id
+```
+
+By its rules, with the default capabilities each engine should get `ERRNO(EPERM)` for
+`setns`, `ALLOW` for `keyctl`, `ERRNO(EPERM)` for `futex_waitv` and `perf_event_open`, and
+`Operation not permitted` from `unshare`.
+
+## Quirks of the upstream profiles
+
+Found while writing the merge, and checked by running both engines:
+
+- Podman's `setns` is allowed first and denied later (`ERRNO(EPERM)` without
+  `CAP_SYS_ADMIN`). libseccomp keeps the first rule for a syscall that has no condition
+  left, so the deny never applies, and a Podman container can call `setns`; Docker's gets
+  `EPERM`. Podman's `perf_event_open` is the reverse: its `ERRNO(EPERM)` rules come before
+  the `ALLOW` for `CAP_PERFMON`, so `--cap-add PERFMON` alone is denied.
+- Podman allows `mount`, `unshare`, `clone` with namespace flags and the like without
+  `CAP_SYS_ADMIN`, so `unshare -Ur` works in a Podman container and not in a Docker one.
+  The merged profile takes Docker's rules for these.
+- Podman allows `keyctl`, `pivot_root` and `signal`, which Docker doesn't mention and
+  denies by default. Podman denies the `futex_*` calls, `cachestat`, `io_pgetevents` and
+  `vmsplice` with `EPERM`; Docker allows them.
+- Podman has one `socket` rule twice (`arg2 != NETLINK_AUDIT` without `CAP_AUDIT_WRITE`).
+  It doesn't restrict address families, as Docker does, and answers `EINVAL` for
+  `socket(AF_NETLINK, ..., NETLINK_AUDIT)` without `CAP_AUDIT_WRITE`.
 
 ## Known limitations
 

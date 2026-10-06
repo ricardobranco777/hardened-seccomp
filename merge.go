@@ -21,10 +21,15 @@ package main
 //     so a deny from either engine wins. A syscall that one engine allows and the other
 //     denies outright (futex_wait, vmsplice, ...) ends up denied.
 //
-// libseccomp does not define what happens when an ALLOW and a deny for the same syscall
-// overlap (compiled, Podman's own setns comes out allowed although its profile denies it
-// without CAP_SYS_ADMIN), so the merge refuses to produce such a profile: for each syscall
-// the rules with different actions must be provably disjoint.
+// libseccomp (db_rule_add) settles overlapping rules by itself, in ways that depend on the
+// order of the rules: once the runtime has resolved capabilities, arch and kernel, most rules
+// are unconditional, an unconditional rule makes it drop every later rule for that syscall
+// whatever its action, and one added after conditional ones replaces them. Podman's setns
+// lists ALLOW first and is allowed although the profile denies it without CAP_SYS_ADMIN; its
+// perf_event_open lists the deny first and is denied although CAP_PERFMON is allowed.
+// Conditional rules with different actions can also be rejected (EEXIST). The merge doesn't
+// emit rules whose meaning depends on any of this: for each syscall the rules with different
+// actions must be provably disjoint.
 //
 // Other choices:
 //   - defaultErrnoRet/defaultErrno follow Podman's ENOSYS (the modern recommended choice over
